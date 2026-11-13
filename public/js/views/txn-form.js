@@ -1,5 +1,5 @@
 import { api, invalidate } from '../api.js';
-import { esc, money, todayStr, icon, segmented, bindSegmented, busy, showError, toast, KIND_LABEL } from '../ui.js';
+import { esc, money, todayStr, icon, segmented, bindSegmented, busy, showError, toast, KIND_LABEL, confirmSheet } from '../ui.js';
 import { confirmDeleteTxns } from './txn-list.js';
 
 const LAST_ACCOUNT = 'ledger:lastAccount';
@@ -8,6 +8,24 @@ const blank = (categoryId = '', projectId = '') => ({
   name: '', unit_price: '', quantity: 1, category_id: categoryId, project_id: projectId, is_advance: false, advance_person: '',
 });
 const amountOf = (it) => Math.round((Number(it.unit_price) || 0) * (Number(it.quantity) || 1));
+const DISCOUNT_LABELS = ['滿額折', '會員折扣', '優惠券', '點數折抵', '其他折扣'];
+
+// 折扣分攤：target 指定時只折那一筆，否則依金額比例分攤；回傳每筆折後金額
+function allocate(items, discount, target) {
+  const gross = items.map(amountOf);
+  const D = Math.max(0, Math.round(Number(discount) || 0));
+  if (!D) return gross;
+  if (target !== null && target !== undefined && gross[target] !== undefined) {
+    return gross.map((g, i) => (i === Number(target) ? Math.max(0, g - D) : g));
+  }
+  const G = gross.reduce((a, b) => a + b, 0);
+  if (!G) return gross;
+  const pay = Math.max(0, G - D);
+  const net = gross.map((g) => Math.round((g * pay) / G));
+  const diff = pay - net.reduce((a, b) => a + b, 0);
+  if (diff) { const k = gross.indexOf(Math.max(...gross)); net[k] += diff; }
+  return net;
+}
 
 export default {
   async render(el, params, query, alive) {
@@ -46,10 +64,20 @@ export default {
           note: existing.note || '',
           items: existing.items.length
             ? existing.items.map((i) => ({
-                name: i.name, unit_price: i.unit_price, quantity: i.quantity, category_id: i.category_id ?? '',
+                name: i.name,
+                unit_price: i.original_amount !== null && i.original_amount !== undefined ? i.original_amount : i.unit_price,
+                quantity: i.original_amount !== null && i.original_amount !== undefined ? 1 : i.quantity,
+                category_id: i.category_id ?? '',
                 project_id: i.project_id ?? '', is_advance: i.is_advance, advance_person: i.advance_person || '',
               }))
             : [blank()],
+          discount: {
+            amount: existing.discount_amount || 0,
+            label: existing.discount_label || '',
+            target: existing.discount_amount && existing.items.filter((i) => i.original_amount !== null && i.original_amount !== undefined).length === 1
+              && existing.items.length > 1
+              ? existing.items.findIndex((i) => i.original_amount !== null && i.original_amount !== undefined) : null,
+          },
         }
       : {
           type: query.type || 'expense',
@@ -60,8 +88,9 @@ export default {
           title: '',
           note: '',
           items: [blank('', projectDefault)],
+          discount: { amount: 0, label: '', target: null },
         };
-    let mode = s.items.length > 1 || s.items.some((i) => i.is_advance) ? 'detail' : 'simple';
+    let mode = s.items.length > 1 || s.items.some((i) => i.is_advance) || s.discount.amount ? 'detail' : 'simple';
 
     const catsFor = (type) => categories.filter((c) => c.kind === (type === 'income' ? 'income' : 'expense'));
     const ensureCategory = () => {
@@ -122,19 +151,27 @@ export default {
     const projectOptions = (sel, none = '不屬於專項') => `<option value="">${none}</option>${projects
       .map((p) => `<option value="${p.id}" ${p.id === Number(sel) ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}`;
 
-    const total = () => (s.type === 'transfer' ? Number(s.amount) || 0 : s.items.reduce((x, it) => x + amountOf(it), 0));
-    const advTotal = () => (s.type === 'expense' ? s.items.filter((i) => i.is_advance).reduce((x, it) => x + amountOf(it), 0) : 0);
+    const nets = () => (mode === 'detail' ? allocate(s.items, s.discount.amount, s.discount.target) : s.items.map(amountOf));
+    const subtotal = () => s.items.reduce((x, it) => x + amountOf(it), 0);
+    const total = () => (s.type === 'transfer' ? Number(s.amount) || 0 : nets().reduce((a, b) => a + b, 0));
+    const advTotal = () => {
+      if (s.type !== 'expense') return 0;
+      const n = nets();
+      return s.items.reduce((x, it, i) => x + (it.is_advance ? n[i] : 0), 0);
+    };
 
     const summary = () => {
       const byCat = new Map();
       const byProj = new Map();
-      s.items.filter((i) => !i.is_advance).forEach((it) => {
+      const n = nets();
+      s.items.forEach((it, i) => {
+        if (it.is_advance) return;
         const c = catById(it.category_id);
         const k = c ? c.name : '未分類';
-        byCat.set(k, (byCat.get(k) || 0) + amountOf(it));
+        byCat.set(k, (byCat.get(k) || 0) + n[i]);
         if (it.project_id) {
           const p = projById(it.project_id);
-          if (p) byProj.set(p.name, (byProj.get(p.name) || 0) + amountOf(it));
+          if (p) byProj.set(p.name, (byProj.get(p.name) || 0) + n[i]);
         }
       });
       const parts = [[...byCat].map(([k, v]) => `${esc(k)} ${money(v)}`).join('　')];
@@ -161,6 +198,7 @@ export default {
           ${s.type === 'expense' ? `<button type="button" class="adv-pill" data-adv="${i}" aria-pressed="${Boolean(it.is_advance)}">代墊</button>` : ''}
           ${Number(it.quantity) > 1 ? `<span class="muted small">× ${it.quantity}</span>` : ''}
           <span style="flex:1"></span>
+          ${s.discount.amount && nets()[i] !== amountOf(it) ? `<span class="small" style="color:#15803D" data-net="${i}">折後 ${money(nets()[i])}</span>` : `<span class="small" style="color:#15803D" data-net="${i}"></span>`}
           <button type="button" class="icon-btn plain" data-remove="${i}" aria-label="刪除這筆明細" style="width:36px;height:36px" ${s.items.length === 1 ? 'disabled' : ''}>${icon('trash', 18)}</button>
         </div>
         ${s.type === 'expense' && it.is_advance ? `<input data-k="advance_person" value="${esc(it.advance_person)}" placeholder="幫誰代墊？例如：小美" aria-label="代墊對象" style="border-color:#D8B4FE">` : ''}
@@ -204,23 +242,33 @@ export default {
             <div class="field"><label for="date">日期</label><input id="date" type="date" value="${esc(s.txn_date)}"></div>
             <div class="field"><label for="title">標題</label><input id="title" value="${esc(s.title)}" placeholder="例如：蔥油餅"></div>
           </div>
-          <button type="button" class="btn ghost" id="to-detail" style="border-style:dashed">${icon('plus', 18, 2)}拆成明細（一筆裡有不同類別）</button>`;
+          <span class="muted small" style="text-align:center">一筆裡有不同類別或有折扣？切到上方的「明細」。</span>`;
       } else {
         bodyHtml = `
+          <div class="panel stack" style="gap:4px;padding:12px 16px;border:2px solid var(--blue)">
+            <label for="title" style="font-size:12px;font-weight:700;color:var(--blue)">店家／大項名稱（必填）</label>
+            <input id="title" value="${esc(s.title)}" placeholder="例如：7-11、家樂福" style="border:0;padding:0;font-size:18px;font-weight:700;background:transparent;min-height:32px">
+          </div>
           <div class="list">
-            <div class="field"><label for="title">標題</label><input id="title" value="${esc(s.title)}" placeholder="例如：7-11"></div>
             <div class="field"><label for="acc">${accLabel}</label><select id="acc" class="${acc && acc.kind === 'credit_card' ? 'orange' : ''}">${accountOptions(s.account_id, notLoan)}</select></div>
             <div class="field"><label for="date">日期</label><input id="date" type="date" value="${esc(s.txn_date)}"></div>
           </div>
           <div class="spread"><h2 class="section" style="font-size:15px">明細（${s.items.length}）</h2><span class="muted small">每筆各自選類別、專項</span></div>
           <div class="list" id="items">${detailRows()}
-            <button type="button" class="link-btn" id="add-item" style="min-height:48px">${icon('plus', 18, 2)}新增明細</button>
+            <div class="grid-2" style="gap:0">
+              <button type="button" class="link-btn" id="add-item" style="min-height:48px;justify-content:center">${icon('plus', 18, 2)}新增明細</button>
+              <button type="button" class="link-btn" id="discount" style="min-height:48px;justify-content:center;color:#15803D">${icon('plus', 18, 2)}${s.discount.amount ? '修改折扣' : '折扣'}</button>
+            </div>
           </div>
           <div class="panel stack" style="gap:6px;padding:12px 16px">
-            <div class="spread"><span class="muted" style="font-size:14px">總金額（明細加總）</span><span class="num" style="font-size:22px;font-weight:700" id="total">NT$ ${money(total())}</span></div>
+            ${s.discount.amount ? `<div class="spread small"><span class="muted">小計</span><span class="num" id="subtotal">${money(subtotal())}</span></div>
+              <div class="spread small" style="color:#15803D"><span>${esc(s.discount.label || '折扣')}${s.discount.target !== null && s.items[s.discount.target] ? `（${esc(s.items[s.discount.target].name || `明細 ${s.discount.target + 1}`)}）` : ''}</span>
+                <span class="row" style="gap:8px"><span class="num">−${money(s.discount.amount)}</span><button type="button" class="link-btn" id="clear-discount" style="font-size:12px;color:var(--muted);min-height:28px">移除</button></span></div>` : ''}
+            <div class="spread"><span class="muted" style="font-size:14px">${s.discount.amount ? '實付' : '總金額（明細加總）'}</span><span class="num" style="font-size:22px;font-weight:700" id="total">NT$ ${money(total())}</span></div>
             <div class="muted small" id="summary">${summary()}</div>
+            ${s.discount.amount ? '<span class="muted small">折扣依金額比例分攤到每筆明細，報表和預算都用折後金額。</span>' : ''}
           </div>
-          ${s.items.length <= 1 && !s.items.some((i) => i.is_advance) ? '<button type="button" class="link-btn" id="to-simple" style="align-self:center">改回簡單模式</button>' : ''}`;
+`;
       }
 
       el.innerHTML = `
@@ -229,6 +277,7 @@ export default {
           <h1>${title}</h1><span style="width:44px"></span>
         </div>
         ${segmented('type', [['expense', '支出'], ['income', '收入'], ['transfer', '轉帳']], s.type)}
+        ${s.type !== 'transfer' ? segmented('mode', [['simple', '單筆'], ['detail', '明細']], mode) : ''}
         <form id="f" class="stack" style="gap:14px">
           ${bodyHtml}
           <div class="list"><div class="field"><label for="note">備註</label><input id="note" value="${esc(s.note)}" placeholder="選填"></div></div>
@@ -254,8 +303,77 @@ export default {
     const refreshTotals = () => {
       const t = el.querySelector('#total');
       if (t) t.textContent = `NT$ ${money(total())}`;
+      const st = el.querySelector('#subtotal');
+      if (st) st.textContent = money(subtotal());
+      if (s.discount.amount) {
+        const n = nets();
+        el.querySelectorAll('[data-net]').forEach((x) => {
+          const i = Number(x.dataset.net);
+          x.textContent = n[i] !== amountOf(s.items[i]) ? `折後 ${money(n[i])}` : '';
+        });
+      }
       const sm = el.querySelector('#summary');
       if (sm) sm.innerHTML = summary();
+    };
+
+    const openDiscount = () => {
+      const dlg = document.createElement('dialog');
+      dlg.className = 'sheet';
+      const sub = subtotal();
+      let dmode = 'amount';
+      const cur = s.discount;
+      dlg.innerHTML = `<div class="stack" style="gap:12px">
+        <strong style="font-size:17px">折扣</strong>
+        ${segmented('dmode', [['amount', '折扣金額'], ['paid', '輸入實付金額']], dmode)}
+        <div class="list">
+          <div class="field"><span class="label">明細小計</span><span class="num">${money(sub)}</span></div>
+          <div class="field" id="row-amount"><label for="d-amount">折扣金額</label><input id="d-amount" class="num" inputmode="numeric" pattern="[0-9]*" value="${cur.amount || ''}" placeholder="0" style="font-weight:700"></div>
+          <div class="field" id="row-paid" hidden><label for="d-paid">收據實付</label><input id="d-paid" class="num" inputmode="numeric" pattern="[0-9]*" value="${cur.amount ? sub - cur.amount : ''}" placeholder="0" style="font-weight:700"></div>
+          <div class="field"><label for="d-label">折扣名稱</label><input id="d-label" list="d-labels" value="${esc(cur.label || '滿額折')}"></div>
+        </div>
+        <datalist id="d-labels">${DISCOUNT_LABELS.map((l) => `<option value="${l}">`).join('')}</datalist>
+        ${s.items.length > 1 ? `<label class="toggle-row"><span>只折某一筆明細（例如單品折價）</span><input type="checkbox" id="d-one" ${cur.target !== null ? 'checked' : ''}></label>
+          <select class="input" id="d-target" ${cur.target !== null ? '' : 'hidden'}>${s.items.map((it, i) => `<option value="${i}" ${i === cur.target ? 'selected' : ''}>${esc(it.name || `明細 ${i + 1}`)}（${money(amountOf(it))}）</option>`).join('')}</select>` : ''}
+        <div class="panel small stack" style="gap:4px" id="d-preview"></div>
+        <button type="button" class="btn" data-a="ok">套用折扣</button>
+        <button type="button" class="btn ghost" data-a="cancel">取消</button>
+      </div>`;
+      document.body.appendChild(dlg);
+      const q = (x) => dlg.querySelector(x);
+      const read = () => {
+        const D = dmode === 'paid' ? sub - (Number(q('#d-paid').value) || 0) : Number(q('#d-amount').value) || 0;
+        const one = q('#d-one') && q('#d-one').checked;
+        return { amount: Math.max(0, Math.min(D, sub)), target: one ? Number(q('#d-target').value) : null };
+      };
+      const preview = () => {
+        const { amount, target } = read();
+        if (q('#d-target')) q('#d-target').hidden = !(q('#d-one') && q('#d-one').checked);
+        const n = allocate(s.items, amount, target);
+        q('#d-preview').innerHTML = amount ? `<span class="muted">折扣 ${money(amount)}，${target !== null ? '只折這一筆' : '依比例分攤'}：</span>${s.items.map((it, i) => `<div class="spread"><span>${esc(it.name || `明細 ${i + 1}`)} ${money(amountOf(it))}</span><span style="color:#15803D">→ ${money(n[i])}</span></div>`).join('')}` : '<span class="muted">輸入折扣後，這裡會顯示每筆明細的折後金額。</span>';
+      };
+      bindSegmented(dlg, 'dmode', (v) => {
+        dmode = v;
+        q('#row-amount').hidden = v !== 'amount';
+        q('#row-paid').hidden = v !== 'paid';
+        preview();
+      });
+      dlg.addEventListener('input', preview);
+      dlg.addEventListener('change', preview);
+      const done = () => { dlg.close(); dlg.remove(); };
+      dlg.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-a]');
+        if (!b) return;
+        if (b.dataset.a === 'ok') {
+          const { amount, target } = read();
+          if (sub > 0 && amount >= sub && target === null) { showError({ message: '折扣不能大於或等於小計' }); return; }
+          s.discount = { amount, label: q('#d-label').value.trim(), target };
+          draw();
+        }
+        done();
+      });
+      dlg.addEventListener('cancel', (e) => { e.preventDefault(); done(); });
+      preview();
+      dlg.showModal();
     };
 
     const bind = () => {
@@ -289,18 +407,34 @@ export default {
         draw();
       });
 
-      const toDetail = el.querySelector('#to-detail');
-      if (toDetail) toDetail.addEventListener('click', () => {
+      if (s.type !== 'transfer') bindSegmented(el, 'mode', async (v) => {
         sync();
-        mode = 'detail';
-        if (!s.items[0].name && s.title) s.items[0].name = s.title;
-        s.items.push(blank(s.items[0].category_id));
+        if (v === 'detail') {
+          mode = 'detail';
+          if (!s.items[0].name && s.title) s.items[0].name = s.title;
+          if (s.items.length === 1) s.items.push(blank(s.items[0].category_id, projectDefault));
+          draw();
+          el.querySelector('#title').focus();
+          return;
+        }
+        if (s.items.length > 1 || s.items.some((i) => i.is_advance) || s.discount.amount) {
+          const ok = await confirmSheet({
+            title: '改回單筆？', body: `會只保留合計 ${money(total())}，類別用第一筆明細的類別。`,
+            confirmLabel: '改回單筆', danger: false,
+          });
+          if (!ok) { draw(); return; }
+          const first = s.items[0];
+          s.items = [{ ...first, unit_price: total(), quantity: 1, is_advance: false, advance_person: '' }];
+          s.discount = { amount: 0, label: '', target: null };
+        }
+        mode = 'simple';
         draw();
-        const rows = el.querySelectorAll('.detail-row');
-        rows[rows.length - 1].querySelector('[data-k="name"]').focus();
       });
-      const toSimple = el.querySelector('#to-simple');
-      if (toSimple) toSimple.addEventListener('click', () => { sync(); mode = 'simple'; draw(); });
+
+      const discBtn = el.querySelector('#discount');
+      if (discBtn) discBtn.addEventListener('click', () => { sync(); openDiscount(); });
+      const clearDisc = el.querySelector('#clear-discount');
+      if (clearDisc) clearDisc.addEventListener('click', () => { sync(); s.discount = { amount: 0, label: '', target: null }; draw(); });
 
       const items = el.querySelector('#items');
       if (items) {
@@ -330,7 +464,10 @@ export default {
           const rm = e.target.closest('[data-remove]');
           if (rm && s.items.length > 1) {
             sync();
-            s.items.splice(Number(rm.dataset.remove), 1);
+            const k = Number(rm.dataset.remove);
+            s.items.splice(k, 1);
+            if (s.discount.target === k) s.discount.target = null;
+            else if (s.discount.target !== null && s.discount.target > k) s.discount.target -= 1;
             draw();
           }
         });
@@ -354,12 +491,28 @@ export default {
           if (!(body.amount > 0)) return showError({ message: '請輸入轉帳金額' });
         } else {
           const list = mode === 'simple' ? [s.items[0]] : s.items;
-          const filled = list.filter((it) => it.unit_price !== '' && it.unit_price !== null);
-          if (!filled.length) return showError({ message: '請輸入金額' });
-          body.items = filled.map((it) => ({
+          const keep = list.map((it) => it.unit_price !== '' && it.unit_price !== null);
+          if (!keep.some(Boolean)) return showError({ message: '請輸入金額' });
+          if (mode === 'detail' && !String(s.title || '').trim()) {
+            const first = (list.find((it) => it.name) || {}).name;
+            const ok = first ? await confirmSheet({
+              title: '還沒填店家／大項名稱', body: `要用第一筆明細的名稱「${esc(first)}」當標題嗎？`,
+              confirmLabel: `用「${esc(first)}」`, cancelLabel: '回去填寫', danger: false,
+            }) : false;
+            if (!ok) { const t = el.querySelector('#title'); if (t) t.focus(); return showError({ message: '請填寫店家／大項名稱' }); }
+            s.title = first;
+            body.title = first;
+          }
+          const netList = mode === 'detail' ? allocate(list, s.discount.amount, s.discount.target) : list.map(amountOf);
+          if (mode === 'detail' && s.discount.amount) {
+            body.discount_amount = s.discount.amount;
+            body.discount_label = s.discount.label || null;
+          }
+          body.items = list.map((it, i) => ({ it, net: netList[i], gross: amountOf(it) })).filter((_, i) => keep[i]).map(({ it, net, gross }) => ({
             name: mode === 'simple' ? (it.name || s.title || '') : it.name,
-            unit_price: Number(it.unit_price),
-            quantity: Number(it.quantity) || 1,
+            unit_price: net !== gross ? net : Number(it.unit_price),
+            quantity: net !== gross ? 1 : Number(it.quantity) || 1,
+            original_amount: net !== gross ? gross : null,
             category_id: it.category_id ? Number(it.category_id) : null,
             project_id: it.project_id ? Number(it.project_id) : null,
             is_advance: s.type === 'expense' && mode === 'detail' && Boolean(it.is_advance),

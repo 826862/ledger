@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { esc, money, md, icon, txnRow, groupByDate, dateLabel, todayStr } from '../ui.js';
+import { esc, money, md, icon, txnRow, groupByDate, dateLabel, todayStr, bindExpand } from '../ui.js';
 
 export default {
   async render(el, params, query, alive) {
@@ -98,5 +98,7 @@ export default {
           ${groups.map((g) => `<div class="list-date">${dateLabel(g.date)}</div>${g.items.map(txnRow).join('')}`).join('')}
         </div>` : `<div class="panel empty">還沒有任何交易。先到「帳戶」新增存款帳戶和信用卡，再按下方的 ＋ 記第一筆。</div>`}
       </div>`;
+    const recentList = el.querySelector('.list');
+    if (recentList) bindExpand(recentList, recentShown);
   },
 };

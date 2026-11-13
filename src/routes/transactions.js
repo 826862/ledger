@@ -14,7 +14,7 @@ const LIST_SQL = `
       'amount', i.amount, 'category_id', i.category_id, 'category_name', c.name,
       'category_color', c.color, 'in_report', i.in_report, 'is_advance', i.is_advance,
       'advance_person', i.advance_person, 'advance_settled_on', i.advance_settled_on,
-      'project_id', i.project_id, 'project_name', p.name
+      'project_id', i.project_id, 'project_name', p.name, 'original_amount', i.original_amount
     ) ORDER BY i.sort_order, i.id) FILTER (WHERE i.id IS NOT NULL), '[]') AS items,
     string_agg(DISTINCT p.name, '、') AS project_name
   FROM transactions t
@@ -47,6 +47,7 @@ function readItems(items, type) {
       category_id: toInt(it.category_id),
       is_advance: isAdvance,
       project_id: toInt(it.project_id),
+      original_amount: toInt(it.original_amount),
       advance_person: isAdvance && typeof it.advance_person === 'string' && it.advance_person.trim() ? it.advance_person.trim() : null,
       sort_order: idx,
     };
@@ -57,10 +58,10 @@ async function insertItems(client, transactionId, items) {
   for (const it of items) {
     await client.query(
       `INSERT INTO transaction_items (transaction_id, name, unit_price, quantity, category_id, in_report, sort_order,
-         is_advance, advance_person, project_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+         is_advance, advance_person, project_id, original_amount)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [transactionId, it.name, it.unit_price, it.quantity, it.category_id, it.in_report ?? true, it.sort_order ?? 0,
-       Boolean(it.is_advance), it.advance_person ?? null, it.project_id ?? null]
+       Boolean(it.is_advance), it.advance_person ?? null, it.project_id ?? null, it.original_amount ?? null]
     );
   }
 }
@@ -80,6 +81,8 @@ async function prepare(client, body) {
     title: typeof body.title === 'string' ? body.title.trim() : '',
     note: typeof body.note === 'string' && body.note.trim() ? body.note.trim() : null,
     project_id: null, // 專項改掛在明細上
+    discount_amount: type === 'transfer' ? 0 : Math.max(0, toInt(body.discount_amount) || 0),
+    discount_label: type !== 'transfer' && typeof body.discount_label === 'string' && body.discount_label.trim() ? body.discount_label.trim().slice(0, 40) : null,
     subscription_id: toInt(body.subscription_id),
     statement_id: null,
     items: [],
@@ -143,10 +146,12 @@ router.post('/', wrap(async (req, res) => {
   const id = await tx(async (client) => {
     const t = await prepare(client, req.body);
     const { rows } = await client.query(
-      `INSERT INTO transactions (type, txn_date, account_id, to_account_id, amount, title, note, project_id, statement_id, source, subscription_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
+      `INSERT INTO transactions (type, txn_date, account_id, to_account_id, amount, title, note, project_id, statement_id, source,
+         subscription_id, discount_amount, discount_label)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
       [t.type, t.txn_date, t.account_id, t.to_account_id, t.amount, t.title, t.note, t.project_id,
-       t.statement_id, req.body.source === 'reconcile' ? 'reconcile' : 'manual', t.subscription_id]
+       t.statement_id, req.body.source === 'reconcile' ? 'reconcile' : 'manual', t.subscription_id,
+       t.discount_amount, t.discount_label]
     );
     await insertItems(client, rows[0].id, t.items);
     return rows[0].id;
@@ -174,9 +179,11 @@ router.put('/:id', wrap(async (req, res) => {
     }
     await client.query(
       `UPDATE transactions SET type = $2, txn_date = $3, account_id = $4, to_account_id = $5, amount = $6,
-         title = $7, note = $8, project_id = $9, statement_id = $10, pending_review = FALSE
+         title = $7, note = $8, project_id = $9, statement_id = $10, pending_review = FALSE,
+         discount_amount = $11, discount_label = $12
        WHERE id = $1`,
-      [id, t.type, t.txn_date, t.account_id, t.to_account_id, t.amount, t.title, t.note, t.project_id, t.statement_id]
+      [id, t.type, t.txn_date, t.account_id, t.to_account_id, t.amount, t.title, t.note, t.project_id, t.statement_id,
+       t.discount_amount, t.discount_label]
     );
     await client.query('DELETE FROM transaction_items WHERE transaction_id = $1', [id]);
     await insertItems(client, id, t.items);

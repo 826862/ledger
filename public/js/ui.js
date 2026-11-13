@@ -166,8 +166,8 @@ export function txnRow(t) {
     if (t.type === 'income' && adv.length && adv.length === t.items.length) {
       parts.push('收回代墊');
     } else {
-      if (t.items.length > 1) parts.push(`${t.items.length} 個品項`);
       if (cats.length) parts.push(cats.map(esc).join('、'));
+      if (t.discount_amount) parts.push(`折扣 ${money(t.discount_amount)}`);
       if (adv.length) parts.push(`含代墊 ${money(adv.reduce((x, i) => x + i.amount, 0))}`);
     }
     if (t.project_name) parts.push(`#${esc(t.project_name)}`);
@@ -181,7 +181,7 @@ export function txnRow(t) {
   const tag = href ? 'a' : 'div';
   return `<${tag} class="list-row" ${href}>
     <div class="icon-box ${box}">${icon(iconName)}</div>
-    <div class="body"><span style="display:flex;align-items:center;gap:6px;min-width:0"><span class="title">${esc(title)}</span>${t.pending_review ? '<span class="badge review" style="margin:0;flex-shrink:0">待核對</span>' : ''}</span><span class="meta">${meta}</span></div>
+    <div class="body"><span style="display:flex;align-items:center;gap:6px;min-width:0"><span class="title">${esc(title)}</span>${t.items.length > 1 && !isTransfer && !t.installment_id ? `<button type="button" class="items-chip" data-expand="${t.id}" aria-expanded="false">${t.items.length} 項 ▾</button>` : ''}${t.pending_review ? '<span class="badge review" style="margin:0;flex-shrink:0">待核對</span>' : ''}</span><span class="meta">${meta}</span></div>
     <span class="amount ${color}">${amount}</span>
   </${tag}>`;
 }
@@ -547,5 +547,36 @@ export function makeSwipeable(container, onDelete) {
     if (e.target.closest('.swipe-del')) { if (row) delete row.dataset.swiped; return; }
     if (row && row.dataset.swiped) { e.preventDefault(); e.stopPropagation(); delete row.dataset.swiped; }
     else if (row && row.classList.contains('open') && !e.target.closest('.swipe-del')) { e.preventDefault(); e.stopPropagation(); close(row); cur = null; }
+  }, true);
+}
+
+
+// 列表裡直接展開明細：txns 是目前畫面上的交易
+export function bindExpand(container, txns) {
+  const byId = new Map(txns.map((t) => [String(t.id), t]));
+  container.addEventListener('click', (e) => {
+    const chip = e.target.closest('[data-expand]');
+    if (!chip) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const row = chip.closest('.list-row');
+    const open = row.nextElementSibling && row.nextElementSibling.classList.contains('items-panel');
+    if (open) {
+      row.nextElementSibling.remove();
+      chip.setAttribute('aria-expanded', 'false');
+      chip.textContent = chip.textContent.replace('▴', '▾');
+      return;
+    }
+    const t = byId.get(chip.dataset.expand);
+    if (!t) return;
+    const panel = document.createElement('div');
+    panel.className = 'items-panel';
+    panel.innerHTML = `${t.items.map((i) => `<div class="spread"><span>${esc(i.name || '明細')} <span class="muted">${[i.is_advance ? `代墊${i.advance_person ? `・${esc(i.advance_person)}` : ''}` : esc(i.category_name || '未分類'), i.project_name ? `#${esc(i.project_name)}` : ''].filter(Boolean).join(' ')}</span></span>
+      <span class="num">${i.original_amount !== null && i.original_amount !== undefined ? `<s class="muted">${money(i.original_amount)}</s> ` : ''}${money(i.amount)}</span></div>`).join('')}
+      ${t.discount_amount ? `<div class="spread" style="color:#15803D"><span>${esc(t.discount_label || '折扣')}</span><span class="num">−${money(t.discount_amount)}</span></div>` : ''}
+      <a href="#/txn/${t.id}" style="align-self:flex-end;font-size:12px">編輯明細 ›</a>`;
+    row.after(panel);
+    chip.setAttribute('aria-expanded', 'true');
+    chip.textContent = chip.textContent.replace('▾', '▴');
   }, true);
 }

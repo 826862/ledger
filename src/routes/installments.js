@@ -26,6 +26,8 @@ function readBody(body) {
     purchase_date: dates.isDate(body.purchase_date) ? body.purchase_date : dates.today(),
     first_bill_date: dates.isDate(body.first_bill_date) ? body.first_bill_date : null,
     report_mode,
+    paid_periods: Math.max(0, toInt(body.paid_periods) || 0),
+    next_bill_date: dates.isDate(body.next_bill_date) ? body.next_bill_date : null,
   };
 }
 
@@ -42,8 +44,16 @@ router.post('/installments', wrap(async (req, res) => {
     const { rows: acc } = await client.query('SELECT * FROM accounts WHERE id = $1', [b.account_id]);
     const card = acc[0];
     if (!card || card.kind !== 'credit_card') throw new HttpError(400, '分期只能建立在信用卡帳戶');
-    const firstBill = b.first_bill_date
-      ? statements.periodEndFor(b.first_bill_date, card.statement_day)
+    if (b.paid_periods >= b.periods) throw new HttpError(400, '已繳期數要小於總期數');
+    const paid = b.paid_periods;
+    // 已經繳了幾期：下一期（第 paid + 1 期）出現在 next_bill_date 那期帳單，往前推算第 1 期
+    const nextBill = paid ? statements.periodEndFor(b.next_bill_date || dates.today(), card.statement_day) : null;
+    const billFor = (no) => {
+      const { y, m } = dates.parse(nextBill);
+      return statements.periodEndFor(dates.make(y, m - (paid + 1 - no), 1), card.statement_day);
+    };
+    const firstBill = paid ? billFor(1)
+      : b.first_bill_date ? statements.periodEndFor(b.first_bill_date, card.statement_day)
       : statements.periodEndFor(b.purchase_date, card.statement_day);
 
     const { rows: ins } = await client.query(
@@ -68,23 +78,30 @@ router.post('/installments', wrap(async (req, res) => {
     );
     await insertItems(client, purchase[0].id, [{
       name: b.name, unit_price: b.principal, quantity: 1, category_id: b.category_id,
-      in_report: b.report_mode === 'full', sort_order: 0,
+      in_report: b.report_mode === 'full' && !paid, sort_order: 0,
     }]);
 
     // 每一期：入帳日為該期結帳日，歸在該期帳單
-    let statement = await statements.getOrCreate(client, card, firstBill);
+    // 已繳的期數只做紀錄：不影響卡費餘額、不進帳單、不算進報表
+    let statement = null;
     for (const p of plan.schedule(b)) {
-      if (p.no > 1) statement = await statements.next(client, card, statement);
+      const isPaid = p.no <= paid;
+      if (!isPaid) {
+        statement = statement ? await statements.next(client, card, statement)
+          : await statements.getOrCreate(client, card, paid ? nextBill : firstBill);
+      }
+      const date = isPaid ? billFor(p.no) : statement.period_end;
       const { rows: t } = await client.query(
-        `INSERT INTO transactions (type, txn_date, account_id, title, statement_id, installment_id, installment_no, source)
-         VALUES ('expense', $1, $2, $3, $4, $5, $6, 'installment') RETURNING id`,
-        [statement.period_end, card.id, `分期｜${b.name}`, statement.id, inst.id, p.no]
+        `INSERT INTO transactions (type, txn_date, account_id, title, statement_id, installment_id, installment_no, affects_balance, source)
+         VALUES ('expense', $1, $2, $3, $4, $5, $6, $7, 'installment') RETURNING id`,
+        [date, card.id, `分期｜${b.name}${isPaid ? '（已繳）' : ''}`, isPaid ? null : statement.id, inst.id, p.no, !isPaid]
       );
+      const reportThis = !isPaid && (b.report_mode === 'spread' || paid > 0);
       const items = [{ name: '本金', unit_price: p.principal, quantity: 1, category_id: b.category_id,
-        in_report: b.report_mode === 'spread', sort_order: 0 }];
+        in_report: reportThis, sort_order: 0 }];
       if (p.interest > 0) {
         items.push({ name: '利息', unit_price: p.interest, quantity: 1, category_id: interestCategoryId,
-          in_report: true, sort_order: 1 });
+          in_report: !isPaid, sort_order: 1 });
       }
       await insertItems(client, t[0].id, items);
     }

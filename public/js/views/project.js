@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { esc, money, md, txnRow, groupByDate, dateLabel, backHead, showError, toast, confirmSheet } from '../ui.js';
+import { esc, money, md, txnRow, groupByDate, dateLabel, backHead, showError, toast, confirmSheet, bindExpand } from '../ui.js';
 
 function breakdown(rows, total) {
   if (!rows.length) return '';
@@ -43,6 +43,7 @@ export default {
         : '<div class="panel empty" style="padding:16px">還沒有交易。記帳時在「專項」選這個專項就會出現在這裡。</div>'}
       <span class="muted small">金額不含代墊；代墊的部分會在交易裡另外標示。</span>
       <div class="grid-2"><button type="button" class="btn ghost" id="archive">${p.archived ? '重新開啟' : '結束專項'}</button><button type="button" class="btn danger" id="delete">刪除專項</button></div>`;
+    el.querySelectorAll('.list').forEach((l) => bindExpand(l, txns));
     el.querySelector('#delete').addEventListener('click', async () => {
       const ok = await confirmSheet({
         title: `刪除專項「${esc(p.name)}」？`,

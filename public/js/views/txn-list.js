@@ -1,5 +1,5 @@
 import { api, invalidate } from '../api.js';
-import { money, monthLabel, todayStr, icon, txnRow, groupByDate, dateLabel, periodBar, bindPeriodBar, confirmSheet, makeSwipeable, showError, toast, esc, md } from '../ui.js';
+import { money, monthLabel, todayStr, icon, txnRow, groupByDate, dateLabel, periodBar, bindPeriodBar, confirmSheet, makeSwipeable, bindExpand, showError, toast, esc, md } from '../ui.js';
 
 function impactText(list) {
   const parts = [];
@@ -92,6 +92,7 @@ export default {
       } else {
         el.querySelector('#select').addEventListener('click', () => { selecting = true; draw(); });
         bindPeriodBar(el, { value: month, go: (m) => { location.hash = `#/transactions?month=${m}`; } });
+        if (list) bindExpand(list, visible);
         if (list) makeSwipeable(list, async (id) => {
           const t = byId.get(Number(id));
           if (!(await confirmDeleteTxns([t]))) return;

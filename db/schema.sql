@@ -473,3 +473,16 @@ SELECT p.*,
 FROM nail_products p;
 
 COMMIT;
+
+-- =====================================================================
+-- 折扣（與 db/migrations/005 相同）
+-- =====================================================================
+
+BEGIN;
+
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS discount_amount BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS discount_label TEXT;
+-- 有折扣時，unit_price／amount 是折後金額，original_amount 是折扣前的金額
+ALTER TABLE transaction_items ADD COLUMN IF NOT EXISTS original_amount BIGINT;
+
+COMMIT;

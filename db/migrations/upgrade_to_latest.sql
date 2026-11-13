@@ -1,5 +1,5 @@
 -- =====================================================================
--- 一次升級到最新版（包含 002、003、004）
+-- 一次升級到最新版（包含 002、003、004、005）
 -- 適用：用最早那版 db/schema.sql 建立、之後都還沒執行過任何 migration 的資料庫。
 -- 在 Neon SQL Editor 貼上整份按 Run 即可；重複執行也不會出錯。
 -- =====================================================================
@@ -242,5 +242,19 @@ SELECT p.*,
          + COALESCE((SELECT SUM(pi.quantity) FROM nail_purchase_items pi WHERE pi.product_id = p.id), 0)
          - COALESCE((SELECT SUM(u.quantity) FROM nail_usage u WHERE u.product_id = p.id), 0) AS remaining
 FROM nail_products p;
+
+COMMIT;
+
+-- =====================================================================
+-- 005：折扣（明細記錄原價，交易記錄折扣名稱與金額）
+-- 已經在用的資料庫：在 Neon SQL Editor 執行一次（重複執行也不會出錯）。
+-- =====================================================================
+
+BEGIN;
+
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS discount_amount BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS discount_label TEXT;
+-- 有折扣時，unit_price／amount 是折後金額，original_amount 是折扣前的金額
+ALTER TABLE transaction_items ADD COLUMN IF NOT EXISTS original_amount BIGINT;
 
 COMMIT;

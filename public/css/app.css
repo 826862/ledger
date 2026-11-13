@@ -662,8 +662,12 @@ dialog.sheet form { display: flex; flex-direction: column; gap: 14px; }
 
 /* ---------- 左滑刪除、多選 ---------- */
 .swipe-row { position: relative; overflow: hidden; touch-action: pan-y; }
-.swipe-inner { position: relative; z-index: 1; background: var(--surface); transition: transform .18s ease; }
+.swipe-inner { position: relative; z-index: 1; background: var(--surface); transition: transform .18s ease; display: flow-root; }
 .swipe-del { position: absolute; right: 0; top: 0; bottom: 0; width: 88px; border: 0; background: #B42318; color: #fff; font-weight: 700; font-size: 15px; }
 .select-dot { width: 24px; height: 24px; border-radius: 12px; border: 2px solid #C2C6CE; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
 .select-dot.on { background: var(--blue); border-color: var(--blue); color: #fff; }
 .btn.danger-solid { background: #B42318; }
+
+/* ---------- 列表展開明細 ---------- */
+.items-chip { min-height: 24px; padding: 0 8px; border-radius: 12px; border: 1.5px solid var(--border); background: var(--surface); color: var(--blue); font-size: 12px; flex-shrink: 0; }
+.items-panel { margin: 0 0 10px 52px; padding: 8px 12px; background: var(--bg); border-radius: 10px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }

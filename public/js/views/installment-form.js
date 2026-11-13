@@ -48,6 +48,23 @@ export default {
       purchase_date: todayStr(),
       category_id: (expenseCats.find((c) => c.name === '其他') || expenseCats[0] || {}).id || '',
       report_mode: 'full',
+      paid: 0,
+      next_bill: '',
+    };
+    // 某張卡從今天起的幾期結帳日
+    const billOptions = (card) => {
+      const sd = card.statement_day;
+      const clamp = (y, m) => { const last = new Date(y, m, 0).getDate(); return `${y}-${String(m).padStart(2, '0')}-${String(Math.min(sd, last)).padStart(2, '0')}`; };
+      const [ty, tm] = todayStr().split('-').map(Number);
+      let first = clamp(ty, tm);
+      if (todayStr() > first) first = clamp(tm === 12 ? ty + 1 : ty, tm === 12 ? 1 : tm + 1);
+      const out = [];
+      let [y, m] = first.split('-').map(Number);
+      for (let k = 0; k < 6; k++) {
+        out.push(clamp(y, m));
+        m += 1; if (m > 12) { m = 1; y += 1; }
+      }
+      return out;
     };
 
     const preview = () => {
@@ -90,6 +107,23 @@ export default {
             </div>
           </div>
 
+          <div class="panel stack" style="gap:10px;padding:12px 16px;${s.paid ? 'border:2px solid var(--blue)' : ''}">
+            <span style="font-weight:700;font-size:14px;color:${s.paid ? 'var(--blue)' : 'inherit'}">這筆分期已經繳了一部分？</span>
+            <div class="spread" style="align-items:center">
+              <span>已經繳了</span>
+              <span class="row" style="gap:8px">
+                <button type="button" class="icon-btn" id="paid-minus" aria-label="減少已繳期數" style="border:1.5px solid var(--border)">−</button>
+                <b class="num" style="font-size:18px;min-width:24px;text-align:center" id="paid-n">${s.paid}</b>
+                <button type="button" class="icon-btn" id="paid-plus" aria-label="增加已繳期數" style="border:1.5px solid var(--border)">＋</button>
+                <span>期</span>
+              </span>
+            </div>
+            ${s.paid ? `<div class="field" style="padding:0;min-height:44px"><label for="next-bill">第 ${s.paid + 1} 期出現在</label>
+              <select id="next-bill">${billOptions(cards.find((a) => a.id === Number(s.account_id)) || cards[0]).map((d) => `<option value="${d}" ${d === s.next_bill ? 'selected' : ''}>${Number(d.slice(5, 7))} 月帳單（${Number(d.slice(5, 7))}/${Number(d.slice(8))} 結帳）</option>`).join('')}</select></div>
+              <span class="muted small">已繳的 ${s.paid} 期只做紀錄，不會再算進帳單、餘額或報表；剩下 ${Number(s.periods) - s.paid} 期會照常進每月帳單，報表按期計算。</span>`
+              : '<span class="muted small">新刷的分期維持 0；之前就開始繳的分期，選已經繳了幾期。</span>'}
+          </div>
+
           <div class="stack">
             <span class="muted small">利息計算方式</span>
             ${segmented('it', [['none', '零利率'], ['apr', '年利率'], ['fixed_fee', '固定手續費']], s.interest_type)}
@@ -107,7 +141,7 @@ export default {
             <span class="muted small">卡費一律按期入帳；這裡只影響分類報表把金額算在哪個月。利息每期都會記在「利息」分類。</span>
           </div>
         </form>
-        <div class="action-bar"><button class="btn" type="submit" form="f">建立分期</button></div>`;
+        <div class="action-bar"><button class="btn" type="submit" form="f">${s.paid ? `建立分期（剩 ${Number(s.periods) - s.paid} 期）` : '建立分期'}</button></div>`;
 
       const sync = () => {
         s.name = el.querySelector('#name').value;
@@ -119,7 +153,19 @@ export default {
         if (apr) s.apr = apr.value;
         const fee = el.querySelector('#fee');
         if (fee) s.fee_per_period = fee.value;
+        const nb = el.querySelector('#next-bill');
+        if (nb) s.next_bill = nb.value;
       };
+      const setPaid = (n) => {
+        sync();
+        const max = Math.max(0, Number(s.periods) - 1);
+        s.paid = Math.max(0, Math.min(max, n));
+        if (s.paid && s.report_mode === 'full') s.report_mode = 'spread';
+        draw();
+      };
+      el.querySelector('#paid-minus').addEventListener('click', () => setPaid(s.paid - 1));
+      el.querySelector('#acc').addEventListener('change', () => { if (s.paid) { sync(); s.next_bill = ''; draw(); } });
+      el.querySelector('#paid-plus').addEventListener('click', () => setPaid(s.paid + 1));
       const refresh = () => { sync(); el.querySelector('#preview').innerHTML = preview(); };
 
       el.querySelector('#f').addEventListener('input', (e) => {
@@ -157,6 +203,8 @@ export default {
               purchase_date: s.purchase_date,
               category_id: s.category_id ? Number(s.category_id) : null,
               report_mode: s.report_mode,
+              paid_periods: s.paid,
+              next_bill_date: s.paid ? (s.next_bill || el.querySelector('#next-bill').value) : null,
             });
             invalidate('accounts');
             toast('已建立分期');
