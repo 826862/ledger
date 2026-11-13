@@ -56,6 +56,9 @@ export default {
         </div>
         <span class="big-number orange" style="font-size:32px">NT$ ${money(due)}</span>
         <span class="muted" style="font-size:13px">繳款截止 ${md(s.due_date)}${s.status !== 'paid' && left >= 0 ? `，還有 ${left} 天` : ''}${!confirmed && nearEnd.length ? `；其中 ${nearEnd.length} 筆靠近結帳日，可能跨期` : ''}</span>
+        ${s.autopay_account_name && s.status !== 'paid' ? `<span class="small ${confirmed ? 'blue' : 'orange'}" style="font-weight:500">${confirmed
+          ? `${md(s.due_date)} 會從${esc(s.autopay_account_name)}自動扣繳 NT$ ${money(due)}`
+          : `已設定從${esc(s.autopay_account_name)}自動扣繳，對帳後才會扣款`}</span>` : ''}
         ${s.status !== 'paid' ? `<a class="btn" href="#/statements/${s.id}/reconcile" style="margin-top:6px;min-height:44px;font-size:15px;border-radius:12px">${confirmed ? '重新對帳' : '收到銀行帳單了，開始對帳'}</a>` : ''}
       </div>
 
@@ -94,14 +97,14 @@ export default {
         </div>` : '<div class="panel empty" style="padding:16px">這張卡沒有分期</div>'}
       </div>
 
-      ${s.status !== 'paid' ? `<div class="action-bar"><button class="btn card" id="pay" ${due > 0 ? '' : 'disabled'}>記錄繳款 ${money(due)}</button></div>` : ''}
+      ${s.status !== 'paid' ? `<div class="action-bar"><button class="btn card" id="pay" ${due > 0 ? '' : 'disabled'}>${s.autopay_account_name ? '手動記錄繳款' : '記錄繳款'} ${money(due)}</button></div>` : ''}
 
       <dialog class="sheet" id="pay-sheet">
         <form method="dialog">
           <strong>記錄繳款</strong>
           ${deposits.length ? `
             <label class="muted small" for="from">從哪個存款帳戶付</label>
-            <select class="input" id="from">${deposits.map((a) => `<option value="${a.id}">${esc(a.name)}（餘額 ${money(a.balance)}）</option>`).join('')}</select>
+            <select class="input" id="from">${deposits.map((a) => `<option value="${a.id}" ${a.name === s.autopay_account_name ? 'selected' : ''}>${esc(a.name)}（餘額 ${money(a.balance)}）</option>`).join('')}</select>
             <label class="muted small" for="pay-amount">金額</label>
             <input class="input num" id="pay-amount" inputmode="numeric" pattern="[0-9]*" value="${due}">
             <div class="grid-2"><button class="btn ghost" value="cancel" formnovalidate>取消</button><button class="btn card" value="ok">確認繳款</button></div>`

@@ -23,7 +23,7 @@ export default {
     const signedTotal = (t) => (t.type === 'income' ? -t.total : t.total);
 
     const st = {
-      amount: s.statement_amount ?? '',
+      bank: '',
       keep: new Set(normal.map((t) => t.id)),
       extras: [],
     };
@@ -32,13 +32,13 @@ export default {
       fixed.reduce((sum, t) => sum + signedTotal(t), 0) +
       normal.filter((t) => st.keep.has(t.id)).reduce((sum, t) => sum + signedTotal(t), 0) +
       st.extras.reduce((sum, x) => sum + x.amount, 0);
-    const diff = () => (st.amount === '' ? null : Number(st.amount) - confirmed());
+    const diff = () => (st.bank === '' ? null : Number(st.bank) - confirmed());
 
     const summaryHtml = () => {
       const d = diff();
       return `
-        <div class="stack" style="gap:2px"><span class="muted small">記錄＋補記</span><span class="num" style="font-size:17px;font-weight:700">${money(confirmed())}</span></div>
-        <div class="stack" style="gap:2px"><span class="small ${d ? 'orange' : 'blue'}">${d === null ? '差額' : d === 0 ? '已對上' : d > 0 ? '還差' : '多記了'}</span>
+        <div class="stack" style="gap:2px"><span class="muted small">本期應繳（勾選＋補記）</span><span class="num" style="font-size:17px;font-weight:700">${money(confirmed())}</span></div>
+        <div class="stack" style="gap:2px"><span class="small ${d ? 'orange' : 'blue'}">${d === null ? '與銀行差額' : d === 0 ? '與銀行一致' : d > 0 ? '比銀行少' : '比銀行多'}</span>
           <span class="num ${d ? 'orange' : 'blue'}" style="font-size:17px;font-weight:700">${d === null ? '—' : money(Math.abs(d))}</span></div>`;
     };
 
@@ -59,8 +59,7 @@ export default {
       quick.hidden = !(feeCat && d !== null && d > 0 && d <= 500);
       quick.querySelector('span').textContent = d > 0 ? `剩下的 ${money(d)} 記為「國外交易手續費」` : '';
       const done = el.querySelector('#done');
-      done.disabled = d !== 0;
-      done.textContent = d === null ? '先輸入銀行帳單金額' : d === 0 ? '完成對帳' : '差額為 0 時可完成對帳';
+      done.textContent = `完成對帳，本期應繳 ${money(confirmed())}`;
     };
 
     el.innerHTML = `
@@ -68,13 +67,14 @@ export default {
       <span class="muted small" style="text-align:center;margin-top:-10px">${md(s.period_start)} – ${md(s.period_end)} 帳單</span>
 
       <div class="panel grid-3" style="gap:8px">
+        <div style="display:contents" id="sum">${summaryHtml()}</div>
         <div class="stack" style="gap:2px">
-          <label class="muted small" for="stmt">銀行帳單應繳</label>
-          <input id="stmt" class="num" inputmode="numeric" pattern="[0-9]*" value="${esc(st.amount)}" placeholder="輸入金額"
+          <label class="muted small" for="stmt">銀行帳單（選填）</label>
+          <input id="stmt" class="num" inputmode="numeric" pattern="[0-9]*" value="" placeholder="比對用"
             style="border:0;border-bottom:1.5px solid var(--border);padding:2px 0;font-size:17px;font-weight:700;background:transparent;width:100%">
         </div>
-        <div style="display:contents" id="sum">${summaryHtml()}</div>
       </div>
+      <span class="muted small">只有勾選的消費和補記的項目會算進本期應繳${s.autopay_account_name ? `，${md(s.due_date)} 由${esc(s.autopay_account_name)}自動扣繳這個金額` : ''}。可以填銀行帳單金額來比對。</span>
 
       ${fixed.length ? `<div class="stack">
         <h2 class="section muted" style="font-size:14px">分期（固定入帳）</h2>
@@ -104,7 +104,7 @@ export default {
         </div>
       </div>
 
-      <div class="action-bar"><button class="btn" id="done" disabled>先輸入銀行帳單金額</button></div>
+      <div class="action-bar"><button class="btn" id="done">完成對帳</button></div>
 
       <dialog class="sheet" id="extra-sheet">
         <form method="dialog">
@@ -119,7 +119,7 @@ export default {
         </form>
       </dialog>`;
 
-    el.querySelector('#stmt').addEventListener('input', (e) => { st.amount = e.target.value.trim(); refresh(); });
+    el.querySelector('#stmt').addEventListener('input', (e) => { st.bank = e.target.value.trim(); refresh(); });
 
     const checks = el.querySelector('#checks');
     if (checks) checks.addEventListener('change', (e) => {
@@ -165,11 +165,12 @@ export default {
 
     const done = el.querySelector('#done');
     done.addEventListener('click', async () => {
-      if (diff() !== 0) return;
+      const d = diff();
+      if (d !== null && d !== 0 && !confirm(`本期應繳 ${money(confirmed())} 和銀行帳單差 ${money(Math.abs(d))}，仍要完成對帳嗎？`)) return;
       await busy(done, async () => {
         try {
           const r = await api.post(`/statements/${s.id}/reconcile`, {
-            statement_amount: Number(st.amount),
+            bank_amount: st.bank === '' ? null : Number(st.bank),
             keep_ids: [...st.keep],
             extras: st.extras.map((x) => ({
               title: x.title,
@@ -178,7 +179,7 @@ export default {
             })),
           });
           invalidate('accounts');
-          toast(r.moved ? `對帳完成，${r.moved} 筆移到下一期` : '對帳完成');
+          toast(`對帳完成，本期應繳 ${money(r.amount)}${r.moved ? `，${r.moved} 筆移到下一期` : ''}`);
           location.hash = back;
         } catch (err) { showError(err); }
       });

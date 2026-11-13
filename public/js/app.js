@@ -11,6 +11,19 @@ import categories from './views/categories.js';
 import bill from './views/bill.js';
 import installmentForm from './views/installment-form.js';
 import reconcile from './views/reconcile.js';
+import loanPay from './views/loan-pay.js';
+import review from './views/review.js';
+import budget from './views/budget.js';
+import projects from './views/projects.js';
+import project from './views/project.js';
+import advances from './views/advances.js';
+import nail from './views/nail.js';
+import nailCustomers from './views/nail-customers.js';
+import nailService from './views/nail-service.js';
+import nailPurchases from './views/nail-purchases.js';
+import nailStock from './views/nail-stock.js';
+import reportCategory from './views/report-category.js';
+import reportExport from './views/report-export.js';
 
 // [路徑樣式, 畫面, 底部選單要亮的分頁（null = 不顯示選單）]
 const routes = [
@@ -21,14 +34,29 @@ const routes = [
   ['/accounts/:id/edit', accountForm, null],
   ['/accounts/:id/bill', bill, null],
   ['/accounts/:id/installments/new', installmentForm, null],
+  ['/accounts/:id/loan-pay', loanPay, null],
+  ['/review', review, null],
   ['/statements/:sid', bill, null],
   ['/statements/:sid/reconcile', reconcile, null],
   ['/add', txnForm, null],
   ['/txn/:id', txnForm, null],
   ['/transactions', txnList, 'home'],
-  ['/report', report, 'report'],
-  ['/settings', settings, 'settings'],
-  ['/categories', categories, 'settings'],
+  ['/report', report, 'more'],
+  ['/settings', settings, 'more'],
+  ['/categories', categories, 'more'],
+  ['/budget', budget, 'more'],
+  ['/projects', projects, 'more'],
+  ['/projects/:pid', project, 'more'],
+  ['/advances', advances, 'more'],
+  ['/nail', nail, 'nail'],
+  ['/nail/customers', nailCustomers, 'nail'],
+  ['/nail/customers/:cid', nailCustomers, 'nail'],
+  ['/nail/service/new', nailService, null],
+  ['/nail/service/:sid', nailService, null],
+  ['/nail/purchases', nailPurchases, 'nail'],
+  ['/nail/stock', nailStock, 'nail'],
+  ['/report/category/:cid', reportCategory, 'more'],
+  ['/report/export', reportExport, null],
 ];
 
 function match(path) {
@@ -51,8 +79,8 @@ const TABS = [
   ['home', '#/', 'home', '總覽'],
   ['accounts', '#/accounts', 'wallet', '帳戶'],
   ['add', '#/add', 'plus', ''],
-  ['report', '#/report', 'pie', '報表'],
-  ['settings', '#/settings', 'sliders', '設定'],
+  ['nail', '#/nail', 'sparkle', '美甲'],
+  ['more', '#/settings', 'grid', '更多'],
 ];
 
 function renderTabbar(active) {

@@ -39,17 +39,23 @@ router.get('/statements/:id', wrap(async (req, res) => {
     const card = await loadCard(client, s.account_id);
     const prev = await statements.forDate(client, card, dates.addDays(s.period_start, -1));
     const next = await statements.next(client, card, s);
-    return { ...s, prev_id: prev.id, next_id: next.id };
+    let autopayName = null;
+    if (card.autopay_account_id) {
+      const { rows } = await client.query('SELECT name FROM accounts WHERE id = $1', [card.autopay_account_id]);
+      autopayName = rows[0] ? rows[0].name : null;
+    }
+    return { ...s, prev_id: prev.id, next_id: next.id, autopay_account_name: autopayName };
   });
   res.json(result);
 }));
 
 // 對帳
-// body: { statement_amount, keep_ids: [交易 id], extras: [{ title, txn_date, items }] }
+// body: { keep_ids: [交易 id], extras: [{ title, txn_date, items }], bank_amount? }
 // 沒勾到的一般消費移到下一期；分期交易固定保留；補記的交易直接歸在這期
+// 對帳後的應繳金額 = 勾選＋補記＋分期的總和，自動扣繳就扣這個金額
 router.post('/statements/:id/reconcile', wrap(async (req, res) => {
   const id = requireInt(req.params.id, '帳單 id');
-  const statementAmount = requireInt(req.body.statement_amount, '銀行帳單金額', { min: 0 });
+  const bankAmount = toInt(req.body.bank_amount);
   const keep = new Set((req.body.keep_ids || []).map(Number));
   const extras = Array.isArray(req.body.extras) ? req.body.extras : [];
 
@@ -92,15 +98,16 @@ router.post('/statements/:id/reconcile', wrap(async (req, res) => {
     }
 
     const after = await statements.summary(client, id);
-    const difference = statementAmount - after.recorded_amount;
-    const status = difference === 0 ? 'reconciled' : 'open';
     await client.query(
-      `UPDATE card_statements SET statement_amount = $2, status = $3,
-         reconciled_at = CASE WHEN $3 = 'reconciled' THEN now() ELSE NULL END
-       WHERE id = $1`,
-      [id, statementAmount, status]
+      `UPDATE card_statements SET statement_amount = $2, status = 'reconciled', reconciled_at = now() WHERE id = $1`,
+      [id, after.recorded_amount]
     );
-    return { moved, difference, status, recorded_amount: after.recorded_amount };
+    return {
+      moved,
+      amount: after.recorded_amount,
+      difference: bankAmount === null ? null : bankAmount - after.recorded_amount,
+      autopay: Boolean(card.autopay_account_id),
+    };
   });
   res.json(result);
 }));

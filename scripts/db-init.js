@@ -20,10 +20,10 @@ async function main() {
     }
     if (force) {
       await client.query(`
-        DROP VIEW IF EXISTS v_statement_summary, v_monthly_category, v_account_balances,
+        DROP VIEW IF EXISTS v_nail_stock, v_statement_summary, v_monthly_category, v_account_balances,
           v_account_movements, v_transaction_amounts CASCADE;
-        DROP TABLE IF EXISTS transaction_items, transactions, installments, card_statements,
-          subscriptions, projects, categories, accounts CASCADE;
+        DROP TABLE IF EXISTS nail_usage, nail_purchase_items, nail_purchases, nail_products, nail_services, nail_customers, nail_allocations, app_settings, budget_overrides, budgets, transaction_items,
+          transactions, installments, card_statements, subscriptions, projects, categories, accounts CASCADE;
       `);
       console.log('已刪除舊資料表');
     }

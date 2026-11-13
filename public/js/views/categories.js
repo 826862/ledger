@@ -1,5 +1,5 @@
 import { api, invalidate } from '../api.js';
-import { esc, icon, backHead, segmented, bindSegmented, showError, toast, SWATCHES } from '../ui.js';
+import { esc, icon, backHead, segmented, bindSegmented, showError, toast, recentColors, makeSortable, HANDLE } from '../ui.js';
 
 export default {
   async render(el, params, query, alive) {
@@ -18,16 +18,15 @@ export default {
       el.innerHTML = `
         ${backHead('分類管理', '#/settings')}
         ${segmented('kind', [['expense', '支出分類'], ['income', '收入分類']], kind)}
-        <span class="muted small">用右邊的箭頭調整順序；點分類可以改名、換顏色或封存。</span>
+        <span class="muted small">按住任一列（或右側把手）上下拖曳排序，放開就儲存；點一下可以改名、換顏色或封存。</span>
         ${list.length ? `<div class="list" id="list">
-          ${list.map((c, i) => `
-            <div class="row" style="min-height:56px">
+          ${list.map((c) => `
+            <div class="row" style="min-height:56px;gap:4px" data-sort-id="${c.id}">
               <button type="button" class="list-row" data-edit="${c.id}" style="flex:1;min-height:56px;padding:0">
-                <span class="dot" style="width:12px;height:12px;border-radius:6px;background:${esc(c.color)}"></span>
+                <span style="width:30px;height:30px;border-radius:9px;background:${esc(c.color)};flex-shrink:0"></span>
                 <span class="body"><span class="title">${esc(c.name)}</span></span>
               </button>
-              <button type="button" class="icon-btn plain" data-move="${i}" data-dir="-1" aria-label="上移 ${esc(c.name)}" ${i === 0 ? 'disabled style="opacity:.25"' : ''}>${icon('up', 20, 2)}</button>
-              <button type="button" class="icon-btn plain" data-move="${i}" data-dir="1" aria-label="下移 ${esc(c.name)}" ${i === list.length - 1 ? 'disabled style="opacity:.25"' : ''}>${icon('down', 20, 2)}</button>
+              ${HANDLE}
             </div>`).join('')}
         </div>` : '<div class="panel empty">還沒有分類</div>'}
         <button type="button" class="btn ghost" id="add">${icon('plus', 18, 2)}新增分類</button>
@@ -35,8 +34,10 @@ export default {
           <form method="dialog" id="sheet-form">
             <strong id="sheet-title"></strong>
             <input class="input" id="c-name" placeholder="分類名稱" maxlength="20">
-            <div class="row" id="c-colors" role="group" aria-label="顏色" style="flex-wrap:wrap;gap:10px">
-              ${SWATCHES.map((c) => `<button type="button" class="swatch" data-color="${c}" aria-label="${c}" aria-pressed="false" style="background:${c}"></button>`).join('')}
+            <div class="row" style="gap:12px;flex-wrap:wrap">
+              <input type="color" id="c-color" style="width:48px;height:48px;border:0;padding:0;background:none;cursor:pointer" aria-label="選擇顏色（色環）">
+              <input id="c-hex" class="input num" style="width:110px;min-height:40px" aria-label="色碼">
+              <div class="row" id="c-colors" role="group" aria-label="最近用過的顏色" style="flex-wrap:wrap;gap:8px;width:100%"></div>
             </div>
             <div class="grid-2"><button class="btn ghost" value="cancel" formnovalidate>取消</button><button class="btn" value="ok">儲存</button></div>
             <button class="btn danger" value="archive" id="c-archive">封存這個分類</button>
@@ -47,11 +48,19 @@ export default {
 
       const sheet = el.querySelector('#sheet');
       let editingId = null;
-      let color = SWATCHES[0];
+      const PALETTE = ['#1E3A8A', '#2563EB', '#93C5FD', '#0F766E', '#9A3412', '#EA580C', '#FDBA74', '#5B6170'];
+      let color = PALETTE[0];
       const setColor = (c) => {
+        if (!/^#[0-9a-fA-F]{6}$/.test(c)) return;
         color = c;
-        sheet.querySelectorAll('[data-color]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.color === c)));
+        sheet.querySelector('#c-color').value = c;
+        sheet.querySelector('#c-hex').value = c;
+        sheet.querySelectorAll('[data-color]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.color.toLowerCase() === c.toLowerCase())));
       };
+      sheet.querySelector('#c-colors').innerHTML = [...new Set([...recentColors(), ...PALETTE])].slice(0, 8)
+        .map((c) => `<button type="button" class="swatch" data-color="${c}" aria-label="${c}" aria-pressed="false" style="background:${c};width:32px;height:32px;border-width:2px"></button>`).join('');
+      sheet.querySelector('#c-color').addEventListener('input', (e) => setColor(e.target.value));
+      sheet.querySelector('#c-hex').addEventListener('input', (e) => setColor(e.target.value.trim()));
       sheet.querySelector('#c-colors').addEventListener('click', (e) => {
         const b = e.target.closest('[data-color]');
         if (b) setColor(b.dataset.color);
@@ -61,7 +70,7 @@ export default {
         sheet.querySelector('#sheet-title').textContent = cat ? '編輯分類' : `新增${kind === 'income' ? '收入' : '支出'}分類`;
         sheet.querySelector('#c-name').value = cat ? cat.name : '';
         sheet.querySelector('#c-archive').hidden = !cat;
-        setColor(cat ? cat.color : SWATCHES[list.length % SWATCHES.length]);
+        setColor(cat ? cat.color : PALETTE[list.length % PALETTE.length]);
         sheet.showModal();
       };
       sheet.addEventListener('close', async () => {
@@ -75,6 +84,7 @@ export default {
           } else {
             const name = sheet.querySelector('#c-name').value.trim();
             if (!name) return showError({ message: '請填寫分類名稱' });
+            recentColors(color);
             if (editingId) await api.put(`/categories/${editingId}`, { name, color });
             else await api.post('/categories', { name, kind, color });
             toast('已儲存');
@@ -85,20 +95,19 @@ export default {
 
       el.querySelector('#add').addEventListener('click', () => open(null));
       const listEl = el.querySelector('#list');
-      if (listEl) listEl.addEventListener('click', async (e) => {
-        const edit = e.target.closest('[data-edit]');
-        if (edit) return open(list.find((c) => c.id === Number(edit.dataset.edit)));
-        const mv = e.target.closest('[data-move]');
-        if (!mv || mv.disabled) return;
-        const i = Number(mv.dataset.move);
-        const j = i + Number(mv.dataset.dir);
-        const ids = list.map((c) => c.id);
-        [ids[i], ids[j]] = [ids[j], ids[i]];
-        try {
-          await api.post('/categories/reorder', { ids });
-          await reload();
-        } catch (err) { showError(err); }
-      });
+      if (listEl) {
+        listEl.addEventListener('click', (e) => {
+          const edit = e.target.closest('[data-edit]');
+          if (edit) open(list.find((c) => c.id === Number(edit.dataset.edit)));
+        });
+        makeSortable(listEl, async (ids) => {
+          try {
+            await api.post('/categories/reorder', { ids });
+            invalidate('categories');
+            all = await api.get('/categories');
+          } catch (err) { showError(err); }
+        });
+      }
     };
     draw();
   },

@@ -7,10 +7,13 @@ const { router: transactions } = require('./routes/transactions');
 const statements = require('./routes/statements');
 const installments = require('./routes/installments');
 const reports = require('./routes/reports');
+const planning = require('./routes/planning');
+const nail = require('./routes/nail');
+const exporter = require('./routes/export');
 
 const app = express();
 app.set('trust proxy', 1);
-app.use(express.json({ limit: '200kb' }));
+app.use(express.json({ limit: '1mb' }));
 
 app.get('/healthz', (req, res) => res.send('ok'));
 
@@ -45,6 +48,9 @@ app.use('/api/transactions', transactions);
 app.use('/api', statements);
 app.use('/api', installments);
 app.use('/api', reports);
+app.use('/api', planning);
+app.use('/api', nail);
+app.use('/api', exporter);
 
 app.use('/api', (req, res) => res.status(404).json({ error: '找不到這個 API' }));
 
