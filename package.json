@@ -1,0 +1,19 @@
+{
+  "name": "ledger",
+  "version": "1.0.0",
+  "description": "個人記帳本：存款／信用卡分開、拆分品項分類、分期、信用卡對帳、每月分類報表",
+  "main": "src/server.js",
+  "private": true,
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch --env-file=.env src/server.js",
+    "db:init": "node --env-file-if-exists=.env scripts/db-init.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "pg": "^8.13.1"
+  }
+}
