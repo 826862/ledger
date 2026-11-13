@@ -120,7 +120,7 @@ export default {
               <button type="button" class="btn ghost small" id="adjust" style="align-self:flex-start">更新剩餘本金</button>
             </div>` : ''}
 
-          ${editing ? `<button type="button" class="btn danger" id="archive">封存這個帳戶</button>` : ''}
+          ${editing ? `<button type="button" class="btn danger" id="archive">封存或刪除這個帳戶</button>` : ''}
         </form>
         <div class="action-bar"><button class="btn" form="f" type="submit">${editing ? '儲存' : '新增帳戶'}</button></div>
         <dialog class="sheet" id="adjust-sheet">
@@ -223,10 +223,9 @@ export default {
         }
         await busy(document.querySelector('.action-bar .btn'), async () => {
           try {
-            if (editing) await api.put(`/accounts/${params.id}`, body);
-            else await api.post('/accounts', body);
+            const r = editing ? await api.put(`/accounts/${params.id}`, body) : await api.post('/accounts', body);
             invalidate('accounts');
-            toast(editing ? '已儲存' : '已新增帳戶');
+            toast(r && r.rebuilt !== undefined ? `已儲存，${r.rebuilt} 筆刷卡已依新的結帳日重新分期` : editing ? '已儲存' : '已新增帳戶');
             location.hash = '#/accounts';
           } catch (err) { showError(err); }
         });
@@ -234,11 +233,18 @@ export default {
 
       const archive = el.querySelector('#archive');
       if (archive) archive.addEventListener('click', async () => {
-        if (!confirm('封存後這個帳戶不會再出現在列表與總額裡，過去的交易會保留。確定封存？')) return;
         try {
-          await api.put(`/accounts/${params.id}`, { archived: true });
-          invalidate('accounts');
-          toast('已封存');
+          const usage = await api.get(`/accounts/${params.id}/usage`);
+          const choice = await removeAccountDialog(acc, usage);
+          if (!choice) return;
+          if (choice === 'archive') {
+            await api.put(`/accounts/${params.id}`, { archived: true });
+            toast('已封存');
+          } else {
+            const r = await api.del(`/accounts/${params.id}?confirm=${encodeURIComponent(acc.name)}`);
+            toast(`已刪除帳戶${r.transactions ? `與 ${r.transactions} 筆交易` : ''}`);
+          }
+          invalidate();
           location.hash = '#/accounts';
         } catch (err) { showError(err); }
       });
@@ -262,3 +268,45 @@ export default {
     draw();
   },
 };
+
+// 封存（建議）或輸入名稱後永久刪除
+function removeAccountDialog(acc, usage) {
+  return new Promise((resolve) => {
+    const total = usage.transactions + usage.transfers;
+    const dlg = document.createElement('dialog');
+    dlg.className = 'sheet';
+    dlg.innerHTML = `<div class="stack" style="gap:12px">
+      <strong style="font-size:17px">封存或刪除「${esc(acc.name)}」？</strong>
+      <div class="panel" style="padding:12px 14px;font-size:14px">目前${acc.kind === 'deposit' ? '餘額' : '欠款'} ${money(acc.balance)}
+        <div class="muted small">${total ? `有 ${usage.transactions} 筆交易、${usage.transfers} 筆轉帳${usage.installments ? `、${usage.installments} 筆分期` : ''}` : '沒有任何交易'}</div></div>
+      <label class="panel row" style="gap:10px;padding:12px 14px;align-items:flex-start"><input type="radio" name="m" value="archive" checked style="width:20px;height:20px">
+        <span class="stack" style="gap:2px"><span style="font-weight:500">封存（建議）</span><span class="muted small">從列表和總額中隱藏，交易和報表都保留</span></span></label>
+      <label class="panel row" style="gap:10px;padding:12px 14px;align-items:flex-start"><input type="radio" name="m" value="delete" style="width:20px;height:20px">
+        <span class="stack" style="gap:2px"><span style="font-weight:500;color:#B42318">${total ? '連同所有交易永久刪除' : '永久刪除'}</span><span class="muted small">${total ? `${total} 筆交易一起刪除，轉帳對方帳戶的餘額也會改變。無法復原。` : '無法復原。'}</span></span></label>
+      <input class="input" id="confirm-name" placeholder="輸入「${esc(acc.name)}」確認永久刪除" hidden>
+      <button type="button" class="btn" data-a="go">封存帳戶</button>
+      <button type="button" class="btn ghost" data-a="cancel">取消</button>
+    </div>`;
+    document.body.appendChild(dlg);
+    const done = (v) => { dlg.close(); dlg.remove(); resolve(v); };
+    const go = dlg.querySelector('[data-a="go"]');
+    const input = dlg.querySelector('#confirm-name');
+    const sync = () => {
+      const del = dlg.querySelector('input[name="m"]:checked').value === 'delete';
+      input.hidden = !del;
+      go.textContent = del ? '永久刪除' : '封存帳戶';
+      go.classList.toggle('danger-solid', del);
+      go.disabled = del && input.value.trim() !== acc.name;
+    };
+    dlg.addEventListener('change', sync);
+    input.addEventListener('input', sync);
+    dlg.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-a]');
+      if (!b) return;
+      if (b.dataset.a === 'cancel') return done(null);
+      done(dlg.querySelector('input[name="m"]:checked').value);
+    });
+    dlg.addEventListener('cancel', (e) => { e.preventDefault(); done(null); });
+    dlg.showModal();
+  });
+}

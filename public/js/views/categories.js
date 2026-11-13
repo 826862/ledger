@@ -40,7 +40,7 @@ export default {
               <div class="row" id="c-colors" role="group" aria-label="最近用過的顏色" style="flex-wrap:wrap;gap:8px;width:100%"></div>
             </div>
             <div class="grid-2"><button class="btn ghost" value="cancel" formnovalidate>取消</button><button class="btn" value="ok">儲存</button></div>
-            <button class="btn danger" value="archive" id="c-archive">封存這個分類</button>
+            <div class="grid-2"><button class="btn danger" value="archive" id="c-archive">封存</button><button class="btn danger" value="delete" id="c-delete">刪除</button></div>
           </form>
         </dialog>`;
 
@@ -69,7 +69,7 @@ export default {
         editingId = cat ? cat.id : null;
         sheet.querySelector('#sheet-title').textContent = cat ? '編輯分類' : `新增${kind === 'income' ? '收入' : '支出'}分類`;
         sheet.querySelector('#c-name').value = cat ? cat.name : '';
-        sheet.querySelector('#c-archive').hidden = !cat;
+        sheet.querySelector('#c-archive').parentElement.hidden = !cat;
         setColor(cat ? cat.color : PALETTE[list.length % PALETTE.length]);
         sheet.showModal();
       };
@@ -77,7 +77,18 @@ export default {
         const action = sheet.returnValue;
         if (action === 'cancel' || !action) return;
         try {
-          if (action === 'archive') {
+          if (action === 'delete') {
+            const cat = list.find((c) => c.id === editingId);
+            const choice = await deleteCategoryDialog(cat, list.filter((c) => c.id !== editingId));
+            if (!choice) return;
+            if (choice.archive) {
+              await api.put(`/categories/${editingId}`, { archived: true });
+              toast('已封存');
+            } else {
+              const r = await api.del(`/categories/${editingId}${choice.moveTo ? `?move_to=${choice.moveTo}` : ''}`);
+              toast(r.moved ? `已刪除，${r.moved} 筆明細${choice.moveTo ? '已移過去' : '改成未分類'}` : '已刪除');
+            }
+          } else if (action === 'archive') {
             if (!confirm('封存後新記帳時不會再看到這個分類，過去的紀錄會保留。確定封存？')) return;
             await api.put(`/categories/${editingId}`, { archived: true });
             toast('已封存');
@@ -112,3 +123,39 @@ export default {
     draw();
   },
 };
+
+// 刪除分類：有明細時選擇移到其他分類或改成未分類；也可以改成封存
+async function deleteCategoryDialog(cat, others) {
+  const usage = await api.get(`/categories/${cat.id}/usage`);
+  return new Promise((resolve) => {
+    const dlg = document.createElement('dialog');
+    dlg.className = 'sheet';
+    const n = usage.items;
+    dlg.innerHTML = `<div class="stack" style="gap:12px">
+      <strong style="font-size:17px">刪除分類「${esc(cat.name)}」？</strong>
+      ${n ? `<span class="muted small">這個分類底下有 ${n} 筆明細，要怎麼處理？</span>
+        <label class="panel row" style="gap:10px;padding:12px 14px;align-items:flex-start"><input type="radio" name="m" value="move" checked style="width:20px;height:20px">
+          <span class="stack" style="gap:6px;flex:1"><span style="font-weight:500">移到其他分類</span>
+          <select class="input" id="to">${others.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></span></label>
+        <label class="panel row" style="gap:10px;padding:12px 14px;align-items:flex-start"><input type="radio" name="m" value="none" style="width:20px;height:20px">
+          <span class="stack" style="gap:2px"><span style="font-weight:500">改成「未分類」</span><span class="muted small">交易保留，報表會顯示在未分類</span></span></label>
+        <span class="muted small">只想先不用、不想動到舊資料的話，可以改用「封存」。</span>`
+        : '<span class="muted small">這個分類沒有任何紀錄，可以直接刪除。</span>'}
+      <button type="button" class="btn danger-solid" data-a="delete">刪除</button>
+      ${n ? '<button type="button" class="btn ghost" data-a="archive">改成封存</button>' : ''}
+      <button type="button" class="btn ghost" data-a="cancel">取消</button>
+    </div>`;
+    document.body.appendChild(dlg);
+    const done = (v) => { dlg.close(); dlg.remove(); resolve(v); };
+    dlg.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-a]');
+      if (!b) return;
+      if (b.dataset.a === 'cancel') return done(null);
+      if (b.dataset.a === 'archive') return done({ archive: true });
+      const mode = n ? dlg.querySelector('input[name="m"]:checked').value : 'none';
+      done({ moveTo: mode === 'move' ? Number(dlg.querySelector('#to').value) : null });
+    });
+    dlg.addEventListener('cancel', (e) => { e.preventDefault(); done(null); });
+    dlg.showModal();
+  });
+}

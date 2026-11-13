@@ -45,7 +45,39 @@ export default {
         <a class="btn" href="#/nail/service/new?customer=${c.id}">${icon('plus', 18, 2)}幫${esc(c.name)}新增預約</a>
         <h2 class="section" style="font-size:15px">施做紀錄</h2>
         ${c.services.length ? `<div class="list">${c.services.map((s) => serviceRow(s, { showDate: true, showName: false })).join('')}</div>` : '<div class="panel empty" style="padding:14px">還沒有施做紀錄</div>'}
+        <button type="button" class="btn danger" id="del-customer">刪除這位客戶</button>
         ${customerSheet(c)}`;
+      el.querySelector('#del-customer').addEventListener('click', async () => {
+        const n = c.services.length;
+        const choice = await new Promise((resolve) => {
+          const dlg = document.createElement('dialog');
+          dlg.className = 'sheet';
+          dlg.innerHTML = `<div class="stack" style="gap:12px"><strong style="font-size:17px">刪除客戶「${esc(c.name)}」？</strong>
+            ${n ? `<span class="muted small">這位客戶有 ${n} 筆施做紀錄。</span>
+              <label class="panel row" style="gap:10px;padding:12px 14px;align-items:flex-start"><input type="radio" name="m" value="keep" checked style="width:20px;height:20px">
+                <span class="stack" style="gap:2px"><span style="font-weight:500">保留施做紀錄和收入</span><span class="muted small">紀錄會變成「未指定客戶」</span></span></label>
+              <label class="panel row" style="gap:10px;padding:12px 14px;align-items:flex-start"><input type="radio" name="m" value="all" style="width:20px;height:20px">
+                <span class="stack" style="gap:2px"><span style="font-weight:500;color:#B42318">連同施做紀錄和收入一起刪除</span><span class="muted small">記帳本裡對應的美甲收入也會刪除</span></span></label>` : ''}
+            <button type="button" class="btn danger-solid" data-a="go">刪除</button><button type="button" class="btn ghost" data-a="cancel">取消</button></div>`;
+          document.body.appendChild(dlg);
+          const done = (v) => { dlg.close(); dlg.remove(); resolve(v); };
+          dlg.addEventListener('click', (e) => {
+            const b = e.target.closest('[data-a]');
+            if (!b) return;
+            if (b.dataset.a === 'cancel') return done(null);
+            const m = dlg.querySelector('input[name="m"]:checked');
+            done(m ? m.value : 'keep');
+          });
+          dlg.addEventListener('cancel', (e) => { e.preventDefault(); done(null); });
+          dlg.showModal();
+        });
+        if (!choice) return;
+        try {
+          await api.del(`/nail/customers/${c.id}${choice === 'all' ? '?with_services=1' : ''}`);
+          toast('已刪除客戶');
+          location.hash = '#/nail/customers';
+        } catch (err) { showError(err); }
+      });
       const sheet = el.querySelector('#c-sheet');
       el.querySelector('#edit').addEventListener('click', () => sheet.showModal());
       sheet.addEventListener('close', async () => {

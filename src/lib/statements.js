@@ -54,4 +54,38 @@ async function summary(client, statementId) {
   return rows[0] || null;
 }
 
-module.exports = { periodEndFor, boundsFor, getOrCreate, forDate, next, summary, SUMMARY_SQL };
+// 結帳日或繳款日改了之後，重新把刷卡歸到新的期別
+// 還沒對帳過的卡：全部重排，繳款日已過的標成已繳款；已經對帳過的卡：只重排還沒對帳的期別
+async function rebuild(client, account, today) {
+  const { rows: rec } = await client.query(
+    'SELECT 1 FROM card_statements WHERE account_id = $1 AND reconciled_at IS NOT NULL LIMIT 1', [account.id]
+  );
+  const full = !rec.length;
+  const { rows: txns } = await client.query(
+    `SELECT t.id, t.txn_date FROM transactions t
+     LEFT JOIN card_statements s ON s.id = t.statement_id
+     WHERE t.account_id = $1 AND t.type IN ('expense', 'income') AND t.affects_balance
+       AND ($2 OR t.statement_id IS NULL OR s.status = 'open')`,
+    [account.id, full]
+  );
+  if (full) {
+    await client.query('UPDATE transactions SET statement_id = NULL WHERE statement_id IN (SELECT id FROM card_statements WHERE account_id = $1)', [account.id]);
+    await client.query('DELETE FROM card_statements WHERE account_id = $1', [account.id]);
+  } else {
+    await client.query('UPDATE transactions SET statement_id = NULL WHERE id = ANY($1::int[])', [txns.map((t) => t.id)]);
+  }
+  for (const t of txns) {
+    const s = await forDate(client, account, t.txn_date);
+    await client.query('UPDATE transactions SET statement_id = $2 WHERE id = $1', [t.id, s.id]);
+  }
+  // 已經沒有任何交易的未對帳期別刪掉
+  await client.query(
+    `DELETE FROM card_statements s WHERE s.account_id = $1 AND s.status = 'open' AND s.reconciled_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM transactions t WHERE t.statement_id = s.id)`,
+    [account.id]
+  );
+  if (full) await client.query(`UPDATE card_statements SET status = 'paid' WHERE account_id = $1 AND due_date < $2`, [account.id, today]);
+  return txns.length;
+}
+
+module.exports = { periodEndFor, boundsFor, getOrCreate, forDate, next, summary, rebuild, SUMMARY_SQL };

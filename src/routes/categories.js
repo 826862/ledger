@@ -60,4 +60,33 @@ router.post('/reorder', wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
+router.get('/:id/usage', wrap(async (req, res) => {
+  const id = requireInt(req.params.id, '分類 id');
+  const { rows } = await query(
+    `SELECT (SELECT COUNT(*) FROM transaction_items WHERE category_id = $1)::INT AS items,
+            (SELECT COUNT(*) FROM subscriptions WHERE category_id = $1)::INT AS subscriptions`, [id]
+  );
+  res.json(rows[0]);
+}));
+
+// 刪除分類：明細移到 move_to（不帶就變成未分類）
+router.delete('/:id', wrap(async (req, res) => {
+  const id = requireInt(req.params.id, '分類 id');
+  const moveTo = req.query.move_to ? requireInt(req.query.move_to, '目標分類') : null;
+  const result = await tx(async (client) => {
+    const { rows } = await client.query('SELECT * FROM categories WHERE id = $1', [id]);
+    if (!rows[0]) throw new HttpError(404, '找不到這個分類');
+    if (moveTo !== null) {
+      const { rows: t } = await client.query('SELECT kind FROM categories WHERE id = $1', [moveTo]);
+      if (!t[0] || t[0].kind !== rows[0].kind || moveTo === id) throw new HttpError(400, '請選擇同類型的其他分類');
+    }
+    const r = await client.query('UPDATE transaction_items SET category_id = $2 WHERE category_id = $1', [id, moveTo]);
+    await client.query('UPDATE subscriptions SET category_id = $2 WHERE category_id = $1', [id, moveTo]);
+    await client.query('UPDATE installments SET category_id = $2 WHERE category_id = $1', [id, moveTo]);
+    await client.query('DELETE FROM categories WHERE id = $1', [id]);
+    return { moved: r.rowCount };
+  });
+  res.json(result);
+}));
+
 module.exports = router;

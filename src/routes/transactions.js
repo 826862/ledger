@@ -208,27 +208,50 @@ router.post('/:id/confirm', wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// 刪除一筆交易（含連動：代墊收回恢復、信用卡繳款恢復未繳）
+async function deleteTransaction(client, id) {
+  const { rows } = await client.query('SELECT installment_id, type, statement_id FROM transactions WHERE id = $1', [id]);
+  if (!rows[0]) return false;
+  if (rows[0].installment_id) throw new HttpError(400, '分期產生的交易請到該卡的分期列表刪除整筆分期');
+  await client.query(
+    'UPDATE transaction_items SET advance_settled_on = NULL, advance_settle_txn_id = NULL WHERE advance_settle_txn_id = $1', [id]
+  );
+  await client.query('DELETE FROM transactions WHERE id = $1', [id]);
+  if (rows[0].type === 'transfer' && rows[0].statement_id) {
+    await client.query(
+      `UPDATE card_statements SET status = CASE WHEN reconciled_at IS NOT NULL THEN 'reconciled' ELSE 'open' END
+       WHERE id = $1 AND status = 'paid'`,
+      [rows[0].statement_id]
+    );
+  }
+  return true;
+}
+
 router.delete('/:id', wrap(async (req, res) => {
   const id = requireInt(req.params.id, '交易 id');
   await tx(async (client) => {
-    const { rows } = await client.query('SELECT installment_id, type, statement_id FROM transactions WHERE id = $1', [id]);
-    if (!rows[0]) throw new HttpError(404, '找不到這筆交易');
-    if (rows[0].installment_id) throw new HttpError(400, '這筆是分期產生的，請到該卡的分期列表刪除整筆分期');
-    // 刪掉的是代墊收回紀錄：原本的代墊恢復成待收回
-    await client.query(
-      'UPDATE transaction_items SET advance_settled_on = NULL, advance_settle_txn_id = NULL WHERE advance_settle_txn_id = $1', [id]
-    );
-    await client.query('DELETE FROM transactions WHERE id = $1', [id]);
-    // 刪掉的是信用卡繳款：帳單恢復成未繳
-    if (rows[0].type === 'transfer' && rows[0].statement_id) {
-      await client.query(
-        `UPDATE card_statements SET status = CASE WHEN reconciled_at IS NOT NULL THEN 'reconciled' ELSE 'open' END
-         WHERE id = $1 AND status = 'paid'`,
-        [rows[0].statement_id]
-      );
-    }
+    if (!(await deleteTransaction(client, id))) throw new HttpError(404, '找不到這筆交易');
   });
   res.json({ ok: true });
 }));
 
-module.exports = { router, insertItems, LIST_SQL, LIST_GROUP };
+// 一次刪除多筆；分期產生的交易會略過
+router.post('/bulk-delete', wrap(async (req, res) => {
+  const ids = Array.isArray(req.body.ids) ? [...new Set(req.body.ids.map(Number).filter(Number.isInteger))] : [];
+  if (!ids.length) throw new HttpError(400, '請選擇要刪除的交易');
+  const result = await tx(async (client) => {
+    let deleted = 0;
+    let skipped = 0;
+    for (const id of ids) {
+      const { rows } = await client.query('SELECT installment_id FROM transactions WHERE id = $1', [id]);
+      if (!rows[0]) continue;
+      if (rows[0].installment_id) { skipped++; continue; }
+      await deleteTransaction(client, id);
+      deleted++;
+    }
+    return { deleted, skipped };
+  });
+  res.json(result);
+}));
+
+module.exports = { router, insertItems, deleteTransaction, LIST_SQL, LIST_GROUP };

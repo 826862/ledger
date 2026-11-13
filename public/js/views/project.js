@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { esc, money, md, txnRow, groupByDate, dateLabel, backHead, showError, toast } from '../ui.js';
+import { esc, money, md, txnRow, groupByDate, dateLabel, backHead, showError, toast, confirmSheet } from '../ui.js';
 
 function breakdown(rows, total) {
   if (!rows.length) return '';
@@ -42,7 +42,15 @@ export default {
       ${txns.length ? `<div class="list">${groups.map((g) => `<div class="list-date">${dateLabel(g.date)}</div>${g.items.map(txnRow).join('')}`).join('')}</div>`
         : '<div class="panel empty" style="padding:16px">還沒有交易。記帳時在「專項」選這個專項就會出現在這裡。</div>'}
       <span class="muted small">金額不含代墊；代墊的部分會在交易裡另外標示。</span>
-      <button type="button" class="btn ghost" id="archive">${p.archived ? '重新開啟這個專項' : '結束這個專項'}</button>`;
+      <div class="grid-2"><button type="button" class="btn ghost" id="archive">${p.archived ? '重新開啟' : '結束專項'}</button><button type="button" class="btn danger" id="delete">刪除專項</button></div>`;
+    el.querySelector('#delete').addEventListener('click', async () => {
+      const ok = await confirmSheet({
+        title: `刪除專項「${esc(p.name)}」？`,
+        impact: `${p.txn_count} 筆交易會保留，只是不再標記這個專項。這個動作無法復原。`,
+      });
+      if (!ok) return;
+      try { await api.del(`/projects/${p.id}`); toast('已刪除專項'); location.hash = '#/projects'; } catch (err) { showError(err); }
+    });
 
     el.querySelector('#archive').addEventListener('click', async () => {
       try {

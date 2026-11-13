@@ -353,6 +353,25 @@ router.put('/projects/:id', wrap(async (req, res) => {
   res.json(rows[0]);
 }));
 
+// 刪除專項：交易保留，只取消專項標記
+router.delete('/projects/:id', wrap(async (req, res) => {
+  const id = requireInt(req.params.id, '專項 id');
+  await tx(async (client) => {
+    await client.query('UPDATE transactions SET project_id = NULL WHERE project_id = $1', [id]);
+    await client.query('UPDATE transaction_items SET project_id = NULL WHERE project_id = $1', [id]);
+    const r = await client.query('DELETE FROM projects WHERE id = $1', [id]);
+    if (!r.rowCount) throw new HttpError(404, '找不到這個專項');
+  });
+  res.json({ ok: true });
+}));
+
+// 刪除固定支出：已經記的交易保留
+router.delete('/subscriptions/:id', wrap(async (req, res) => {
+  const r = await query('DELETE FROM subscriptions WHERE id = $1', [requireInt(req.params.id, '固定支出 id')]);
+  if (!r.rowCount) throw new HttpError(404, '找不到這筆固定支出');
+  res.json({ ok: true });
+}));
+
 // =====================================================================
 // 美甲
 // =====================================================================
@@ -398,7 +417,7 @@ router.get('/nail', wrap(async (req, res) => {
       rate,
       income_total: incomeTotal,
       income_count: income.rows.length,
-      allocation_estimate: Math.round((incomeTotal * rate) / 100),
+      allocation_estimate: settings.nailAllocation(incomeTotal, rate),
       allocation: allocation.rows[0] || null,
       bag_name: bag.rows[0] ? bag.rows[0].name : null,
       bag_balance: bag.rows[0] ? bag.rows[0].balance : null,

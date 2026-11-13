@@ -106,7 +106,7 @@ async function run(client) {
           [nail.income_category_id, month]
         );
         const income = inc[0].income;
-        const amount = Math.round((income * rate) / 100);
+        const amount = settings.nailAllocation(income, rate);
         let txnId = null;
         if (amount > 0) {
           const nextMonth = dates.make(Number(month.slice(0, 4)), Number(month.slice(5, 7)) + 1, 1);

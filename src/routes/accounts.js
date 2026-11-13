@@ -173,7 +173,13 @@ router.put('/:id', wrap(async (req, res) => {
     if (!keys.length) throw new HttpError(400, '沒有要更新的欄位');
     const sets = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
     const { rows } = await client.query(`UPDATE accounts SET ${sets} WHERE id = $1 RETURNING *`, [id, ...keys.map((k) => a[k])]);
-    return rows[0];
+    const updated = rows[0];
+    // 信用卡結帳日、繳款日改了：依新的日期重新分期
+    if (updated.kind === 'credit_card'
+        && (updated.statement_day !== cur[0].statement_day || updated.due_day !== cur[0].due_day)) {
+      updated.rebuilt = await statements.rebuild(client, updated, dates.today());
+    }
+    return updated;
   });
   res.json(row);
 }));
@@ -198,6 +204,50 @@ router.post('/:id/adjust', wrap(async (req, res) => {
     [dates.today(), id, delta, isLoan ? '更新剩餘本金' : '餘額校正']
   );
   res.json({ adjusted: actual - rows[0].balance, balance: actual });
+}));
+
+router.get('/:id/usage', wrap(async (req, res) => {
+  const id = requireInt(req.params.id, '帳戶 id');
+  const { rows } = await query(
+    `SELECT (SELECT COUNT(*) FROM transactions WHERE account_id = $1 AND type <> 'transfer')::INT AS transactions,
+            (SELECT COUNT(*) FROM transactions WHERE type = 'transfer' AND (account_id = $1 OR to_account_id = $1))::INT AS transfers,
+            (SELECT COUNT(*) FROM installments WHERE account_id = $1)::INT AS installments,
+            (SELECT COUNT(*) FROM subscriptions WHERE account_id = $1)::INT AS subscriptions`, [id]
+  );
+  res.json(rows[0]);
+}));
+
+// 永久刪除帳戶：連同它的所有交易、轉帳、帳單、分期、固定支出。需要帶上帳戶名稱確認。
+router.delete('/:id', wrap(async (req, res) => {
+  const id = requireInt(req.params.id, '帳戶 id');
+  const result = await tx(async (client) => {
+    const { rows } = await client.query('SELECT * FROM accounts WHERE id = $1', [id]);
+    if (!rows[0]) throw new HttpError(404, '找不到這個帳戶');
+    if ((req.query.confirm || '') !== rows[0].name) throw new HttpError(400, '請輸入正確的帳戶名稱確認刪除');
+    const { rows: txns } = await client.query(
+      'SELECT id FROM transactions WHERE account_id = $1 OR to_account_id = $1', [id]
+    );
+    const ids = txns.map((t) => t.id);
+    if (ids.length) {
+      await client.query(
+        'UPDATE transaction_items SET advance_settled_on = NULL, advance_settle_txn_id = NULL WHERE advance_settle_txn_id = ANY($1::int[])', [ids]
+      );
+      await client.query('DELETE FROM transactions WHERE id = ANY($1::int[])', [ids]);
+    }
+    await client.query('DELETE FROM installments WHERE account_id = $1', [id]);
+    await client.query('DELETE FROM card_statements WHERE account_id = $1', [id]);
+    await client.query('DELETE FROM subscriptions WHERE account_id = $1', [id]);
+    await client.query('UPDATE nail_services SET account_id = NULL WHERE account_id = $1', [id]);
+    await client.query('UPDATE nail_purchases SET account_id = NULL WHERE account_id = $1', [id]);
+    await client.query('UPDATE accounts SET autopay_account_id = NULL WHERE autopay_account_id = $1', [id]);
+    await client.query(
+      `DELETE FROM app_settings WHERE key = 'nail'
+         AND ((value->>'bag_account_id')::int = $1 OR (value->>'source_account_id')::int = $1)`, [id]
+    );
+    await client.query('DELETE FROM accounts WHERE id = $1', [id]);
+    return { transactions: ids.length };
+  });
+  res.json(result);
 }));
 
 // 手動記錄貸款繳款：整筆從存款轉到貸款帳戶

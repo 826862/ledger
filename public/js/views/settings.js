@@ -21,6 +21,7 @@ export default {
       <div class="list">
         ${row('#/accounts', 'wallet', '帳戶管理', '存款、信用卡、貸款')}
         ${row('#/categories', 'sliders', '分類管理', '新增、改名、排序、換顏色')}
+        ${row('#/import', 'download', '匯入資料', '從匯入檔（例如 Notion 轉出的資料）重建記帳本')}
       </div>
       <button class="btn ghost" id="logout">登出</button>`;
     el.querySelector('#logout').addEventListener('click', async () => {

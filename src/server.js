@@ -10,9 +10,11 @@ const reports = require('./routes/reports');
 const planning = require('./routes/planning');
 const nail = require('./routes/nail');
 const exporter = require('./routes/export');
+const importer = require('./routes/importer');
 
 const app = express();
 app.set('trust proxy', 1);
+app.use('/api/import', express.json({ limit: '10mb' }));
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/healthz', (req, res) => res.send('ok'));
@@ -51,11 +53,21 @@ app.use('/api', reports);
 app.use('/api', planning);
 app.use('/api', nail);
 app.use('/api', exporter);
+app.use('/api', importer);
 
 app.use('/api', (req, res) => res.status(404).json({ error: '找不到這個 API' }));
 
-app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
-app.get('*', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
+// 前端檔案沒有加版本號，請瀏覽器每次都確認是否有新版，部署後才會立刻看到更新
+app.use(express.static(path.join(__dirname, '..', 'public'), {
+  setHeaders: (res, filePath) => {
+    if (/\.(html|js|css|webmanifest)$/.test(filePath)) res.setHeader('Cache-Control', 'no-cache');
+    else res.setHeader('Cache-Control', 'public, max-age=86400');
+  },
+}));
+app.get('*', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+});
 
 // 錯誤處理
 app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars

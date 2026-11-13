@@ -1,5 +1,6 @@
 import { api, invalidate } from '../api.js';
 import { esc, money, todayStr, icon, segmented, bindSegmented, busy, showError, toast, KIND_LABEL } from '../ui.js';
+import { confirmDeleteTxns } from './txn-list.js';
 
 const LAST_ACCOUNT = 'ledger:lastAccount';
 
@@ -379,7 +380,7 @@ export default {
 
       const del = el.querySelector('#del');
       if (del) del.addEventListener('click', async () => {
-        if (!confirm('確定刪除這筆交易？')) return;
+        if (!(await confirmDeleteTxns([existing]))) return;
         try {
           await api.del(`/transactions/${params.id}`);
           invalidate('accounts');

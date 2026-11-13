@@ -24,6 +24,7 @@ import nailPurchases from './views/nail-purchases.js';
 import nailStock from './views/nail-stock.js';
 import reportCategory from './views/report-category.js';
 import reportExport from './views/report-export.js';
+import importer from './views/import.js';
 
 // [路徑樣式, 畫面, 底部選單要亮的分頁（null = 不顯示選單）]
 const routes = [
@@ -57,6 +58,7 @@ const routes = [
   ['/nail/stock', nailStock, 'nail'],
   ['/report/category/:cid', reportCategory, 'more'],
   ['/report/export', reportExport, null],
+  ['/import', importer, 'more'],
 ];
 
 function match(path) {

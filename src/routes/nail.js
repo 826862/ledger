@@ -149,6 +149,25 @@ router.put('/nail/customers/:id', wrap(async (req, res) => {
   res.json(rows[0]);
 }));
 
+// 刪除客戶：with_services=1 時連同施做紀錄與對應收入一起刪除，否則施做紀錄保留（不再連到客戶）
+router.delete('/nail/customers/:id', wrap(async (req, res) => {
+  const id = requireInt(req.params.id, '客戶 id');
+  const withServices = req.query.with_services === '1';
+  const result = await tx(async (client) => {
+    let services = 0;
+    if (withServices) {
+      const { rows } = await client.query('DELETE FROM nail_services WHERE customer_id = $1 RETURNING transaction_id', [id]);
+      services = rows.length;
+      const txIds = rows.map((r) => r.transaction_id).filter(Boolean);
+      if (txIds.length) await client.query('DELETE FROM transactions WHERE id = ANY($1::int[])', [txIds]);
+    }
+    const r = await client.query('DELETE FROM nail_customers WHERE id = $1', [id]);
+    if (!r.rowCount) throw new HttpError(404, '找不到這位客戶');
+    return { services };
+  });
+  res.json(result);
+}));
+
 // =====================================================================
 // 施做紀錄：施做完成時自動產生美甲收入
 // =====================================================================
@@ -327,6 +346,16 @@ router.put('/nail/products/:id', wrap(async (req, res) => {
   );
   if (!rows[0]) throw new HttpError(404, '找不到這個商品');
   res.json(rows[0]);
+}));
+
+// 刪除商品：有進貨紀錄的商品不能刪，請改用「不再追蹤」
+router.delete('/nail/products/:id', wrap(async (req, res) => {
+  const id = requireInt(req.params.id, '商品 id');
+  const { rows } = await query('SELECT 1 FROM nail_purchase_items WHERE product_id = $1 LIMIT 1', [id]);
+  if (rows.length) throw new HttpError(400, '這個商品有進貨紀錄，不能刪除，可以改用「不再追蹤」');
+  const r = await query('DELETE FROM nail_products WHERE id = $1', [id]);
+  if (!r.rowCount) throw new HttpError(404, '找不到這個商品');
+  res.json({ ok: true });
 }));
 
 router.get('/nail/products/:id/usage', wrap(async (req, res) => {

@@ -659,3 +659,11 @@ dialog.sheet form { display: flex; flex-direction: column; gap: 14px; }
 
 .up { color: #B42318; }
 .down { color: #15803D; }
+
+/* ---------- 左滑刪除、多選 ---------- */
+.swipe-row { position: relative; overflow: hidden; touch-action: pan-y; }
+.swipe-inner { position: relative; z-index: 1; background: var(--surface); transition: transform .18s ease; }
+.swipe-del { position: absolute; right: 0; top: 0; bottom: 0; width: 88px; border: 0; background: #B42318; color: #fff; font-weight: 700; font-size: 15px; }
+.select-dot { width: 24px; height: 24px; border-radius: 12px; border: 2px solid #C2C6CE; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.select-dot.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+.btn.danger-solid { background: #B42318; }

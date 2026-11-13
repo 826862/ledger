@@ -1,5 +1,5 @@
 import { api, invalidate } from '../api.js';
-import { esc, money, md, icon, monthLabel, shiftMonth, todayStr, backHead, segmented, bindSegmented, busy, showError, toast } from '../ui.js';
+import { esc, money, md, icon, monthLabel, shiftMonth, todayStr, backHead, segmented, bindSegmented, busy, showError, toast, confirmSheet, makeSwipeable } from '../ui.js';
 
 const CYCLE = { monthly: '每月', bimonthly: '每兩個月', yearly: '每年' };
 
@@ -53,7 +53,7 @@ export default {
           </div>
           ${b.fixed.length ? `<div class="list">
             ${b.fixed.map((f) => `
-              <div class="list-row" style="gap:10px">
+              <div class="list-row" style="gap:10px" ${f.kind === 'subscription' ? `data-swipe-id="${f.id}"` : ''}>
                 <span class="icon-box ${f.paid ? '' : 'neutral'}" style="width:32px;height:32px;border-radius:16px">${f.paid ? icon('check', 16, 2.4) : ''}</span>
                 <button type="button" class="body" ${f.kind === 'subscription' ? `data-edit-sub="${f.id}"` : ''} style="border:0;background:none;padding:0;text-align:left;color:inherit">
                   <span class="title">${esc(f.name)}</span>
@@ -121,7 +121,7 @@ export default {
             </div>
             <label class="toggle-row"><span class="muted" style="font-size:14px">到期自動記帳（會標成待核對）</span><input type="checkbox" id="s-auto"></label>
             <div class="grid-2"><button class="btn ghost" value="cancel" formnovalidate>取消</button><button class="btn" value="ok">儲存</button></div>
-            <button class="btn danger" value="stop" id="s-stop">不再列為固定支出</button>
+            <button class="btn danger" value="stop" id="s-stop">刪除這筆固定支出</button>
           </form>
         </dialog>`;
 
@@ -150,7 +150,8 @@ export default {
         if (!action || action === 'cancel') return;
         try {
           if (action === 'stop') {
-            await api.put(`/subscriptions/${editingSub.id}`, { active: false });
+            if (!(await confirmSheet({ title: `刪除固定支出「${esc(editingSub.name)}」？`, impact: '之前已經記的交易會保留，之後不會再列出或自動記帳。' }))) return;
+            await api.del(`/subscriptions/${editingSub.id}`);
           } else {
             const body = {
               name: sheet.querySelector('#s-name').value,
@@ -178,6 +179,13 @@ export default {
           } catch (err) { showError(err); }
         });
       }));
+
+      const fixedList = el.querySelector('[data-swipe-id]') ? el.querySelector('[data-swipe-id]').parentElement : null;
+      if (fixedList) makeSwipeable(fixedList, async (id) => {
+        const sub = subs.find((x) => x.id === Number(id));
+        if (!sub || !(await confirmSheet({ title: `刪除固定支出「${esc(sub.name)}」？`, impact: '之前已經記的交易會保留，之後不會再列出或自動記帳。' }))) return;
+        try { await api.del(`/subscriptions/${id}`); toast('已刪除'); this.render(el, params, query, alive); } catch (err) { showError(err); }
+      });
 
       // 分類預算
       const edit = el.querySelector('#edit');

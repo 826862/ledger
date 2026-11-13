@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { esc, md, icon, todayStr, showError, toast } from '../ui.js';
+import { esc, md, icon, todayStr, showError, toast, confirmSheet } from '../ui.js';
 import { nailTabs, productRow } from './nail-common.js';
 
 const LAST_USER = 'ledger:nailUser';
@@ -57,12 +57,13 @@ export default {
           </div>
           <span class="muted small">「現有數量」是開始記錄前手上已有的數量；之後進貨會自動加上去。</span>
           <div class="grid-2"><button class="btn ghost" value="cancel" formnovalidate>取消</button><button class="btn" value="ok">儲存</button></div>
-          <button class="btn danger" value="archive" id="p-archive">不再追蹤這個商品</button>
+          <div class="grid-2" id="p-danger"><button class="btn danger" value="archive">不再追蹤</button><button class="btn danger" value="delete">刪除商品</button></div>
         </form>
       </dialog>`;
 
     // 拿取
     const useSheet = el.querySelector('#use-sheet');
+    let usageChanged = false;
     let useId = null;
     const list = el.querySelector('#list');
     if (list) list.addEventListener('click', async (e) => {
@@ -75,14 +76,26 @@ export default {
         useSheet.showModal();
         try {
           const h = await api.get(`/nail/products/${useId}/usage`);
-          useSheet.querySelector('#u-history').innerHTML = h.usage.slice(0, 3).map((u) => `${md(u.use_date)} ${esc(u.user_name || '')} 拿了 ${Number(u.quantity)}`).join('<br>') || '還沒有拿取紀錄';
+          useSheet.querySelector('#u-history').innerHTML = h.usage.slice(0, 5).map((u) => `<div class="spread" style="min-height:32px">${md(u.use_date)} ${esc(u.user_name || '')} 拿了 ${Number(u.quantity)}<button type="button" class="link-btn" data-del-usage="${u.id}" style="color:#B42318;font-size:12px;min-height:32px">刪除</button></div>`).join('') || '還沒有拿取紀錄';
         } catch { /* 只是參考資訊 */ }
         return;
       }
       const ed = e.target.closest('[data-edit-product]');
       if (ed) openProduct(products.find((x) => x.id === Number(ed.dataset.editProduct)));
     });
+    useSheet.querySelector('#u-history').addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-del-usage]');
+      if (!b) return;
+      e.preventDefault();
+      try {
+        await api.del(`/nail/usage/${b.dataset.delUsage}`);
+        b.parentElement.remove();
+        toast('已刪除拿取紀錄，庫存已加回');
+        usageChanged = true;
+      } catch (err) { showError(err); }
+    });
     useSheet.addEventListener('close', async () => {
+      if (usageChanged && useSheet.returnValue !== 'ok') { this.render(el, params, query, alive); return; }
       if (useSheet.returnValue !== 'ok') return;
       const user = useSheet.querySelector('#u-user').value.trim();
       localStorage.setItem(LAST_USER, user);
@@ -107,7 +120,7 @@ export default {
       pSheet.querySelector('#p-exp').value = p ? p.expiry || '' : '';
       pSheet.querySelector('#p-qty').value = p ? Number(p.initial_qty) : 0;
       pSheet.querySelector('#p-low').value = p ? Number(p.low_threshold) : 1;
-      pSheet.querySelector('#p-archive').hidden = !p;
+      pSheet.querySelector('#p-danger').hidden = !p;
       pSheet.showModal();
     };
     el.querySelector('#add-product').addEventListener('click', () => openProduct(null));
@@ -115,7 +128,10 @@ export default {
       const act = pSheet.returnValue;
       if (!act || act === 'cancel') return;
       try {
-        if (act === 'archive') {
+        if (act === 'delete') {
+          if (!(await confirmSheet({ title: `刪除商品「${esc(editingProduct.name)}」？`, impact: '拿取紀錄會一起刪除。有進貨紀錄的商品不能刪除，可以改用「不再追蹤」。' }))) return;
+          await api.del(`/nail/products/${editingProduct.id}`);
+        } else if (act === 'archive') {
           await api.put(`/nail/products/${editingProduct.id}`, { archived: true });
         } else {
           const body = {

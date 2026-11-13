@@ -463,3 +463,89 @@ export function resizeImage(file, size = 96) {
     reader.readAsDataURL(file);
   });
 }
+
+// ---------------------------------------------------------------------
+// 確認視窗：回傳 true / false
+// opts: { title, body, impact, confirmLabel, danger, cancelLabel }
+// ---------------------------------------------------------------------
+export function confirmSheet({ title, body = '', impact = '', confirmLabel = '刪除', danger = true, cancelLabel = '取消' }) {
+  return new Promise((resolve) => {
+    const dlg = document.createElement('dialog');
+    dlg.className = 'sheet';
+    dlg.innerHTML = `<div class="stack" style="gap:12px">
+      <strong style="font-size:17px">${title}</strong>
+      ${body ? `<div class="panel" style="padding:12px 14px;font-size:14px;line-height:1.6">${body}</div>` : ''}
+      ${impact ? `<div class="note" style="font-size:13px">${impact}</div>` : ''}
+      <button type="button" class="btn" data-v="1" style="${danger ? 'background:#B42318' : ''}">${confirmLabel}</button>
+      <button type="button" class="btn ghost" data-v="0">${cancelLabel}</button>
+    </div>`;
+    document.body.appendChild(dlg);
+    const done = (v) => { dlg.close(); dlg.remove(); resolve(v); };
+    dlg.addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (b) done(b.dataset.v === '1'); });
+    dlg.addEventListener('cancel', (e) => { e.preventDefault(); done(false); });
+    dlg.showModal();
+  });
+}
+
+// ---------------------------------------------------------------------
+// 左滑刪除：列需要 data-swipe-id；滑開後點紅色「刪除」呼叫 onDelete(id, row)
+// ---------------------------------------------------------------------
+export function makeSwipeable(container, onDelete) {
+  const W = 88;
+  let cur = null;
+  const close = (row) => { if (row) { row.querySelector('.swipe-inner').style.transform = ''; row.classList.remove('open'); } };
+  container.querySelectorAll('[data-swipe-id]').forEach((row) => {
+    if (row.querySelector('.swipe-inner')) return;
+    const inner = document.createElement('div');
+    inner.className = 'swipe-inner';
+    while (row.firstChild) inner.appendChild(row.firstChild);
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'swipe-del';
+    del.textContent = '刪除';
+    del.setAttribute('aria-label', '刪除這一筆');
+    row.classList.add('swipe-row');
+    row.appendChild(del);
+    row.appendChild(inner);
+    del.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); onDelete(row.dataset.swipeId, row); close(row); });
+  });
+  let start = null;
+  container.addEventListener('pointerdown', (e) => {
+    const row = e.target.closest('.swipe-row');
+    if (!row || e.target.closest('.swipe-del')) return;
+    if (cur && cur !== row) { close(cur); cur = null; }
+    start = { x: e.clientX, y: e.clientY, row, base: row.classList.contains('open') ? -W : 0, moved: false };
+  });
+  container.addEventListener('pointermove', (e) => {
+    if (!start) return;
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+    if (!start.moved && Math.abs(dx) < 8) return;
+    if (!start.moved && Math.abs(dy) > Math.abs(dx)) { start = null; return; }
+    start.moved = true;
+    const x = Math.max(-W - 20, Math.min(0, start.base + dx));
+    start.row.querySelector('.swipe-inner').style.transform = `translateX(${x}px)`;
+  });
+  const end = (e) => {
+    if (!start) return;
+    const { row, moved, base, x0 = start.x } = start;
+    if (moved) {
+      const dx = e.clientX - x0;
+      const open = base + dx < -W / 2;
+      row.querySelector('.swipe-inner').style.transform = open ? `translateX(-${W}px)` : '';
+      row.classList.toggle('open', open);
+      cur = open ? row : null;
+      row.dataset.swiped = '1';
+    }
+    start = null;
+  };
+  container.addEventListener('pointerup', end);
+  container.addEventListener('pointercancel', end);
+  // 滑動後不要觸發點擊進入編輯
+  container.addEventListener('click', (e) => {
+    const row = e.target.closest('.swipe-row');
+    if (e.target.closest('.swipe-del')) { if (row) delete row.dataset.swiped; return; }
+    if (row && row.dataset.swiped) { e.preventDefault(); e.stopPropagation(); delete row.dataset.swiped; }
+    else if (row && row.classList.contains('open') && !e.target.closest('.swipe-del')) { e.preventDefault(); e.stopPropagation(); close(row); cur = null; }
+  }, true);
+}

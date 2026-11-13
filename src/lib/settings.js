@@ -12,3 +12,6 @@ async function set(client, key, value) {
 }
 
 module.exports = { get, set };
+
+// 美甲收入袋撥款：收入 × 比例，四捨五入到百位（例如 2,134 → 2,100、2,150 → 2,200）
+module.exports.nailAllocation = (income, rate) => Math.round((income * rate) / 100 / 100) * 100;
