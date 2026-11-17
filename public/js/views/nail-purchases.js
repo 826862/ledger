@@ -14,7 +14,8 @@ export default {
         ${list.length ? `<div class="list">${list.map((p) => `
           <div class="stack" style="gap:6px;padding:12px 0">
             <div class="spread"><span style="font-weight:500">${esc(p.vendor || '進貨')}</span><span class="num" style="font-weight:700">${money(p.total)}</span></div>
-            <span class="small muted">${md(p.purchase_date)} · ${esc(p.account_name || '')} · ${p.items.length} 項</span>
+            <span class="small muted">${[md(p.purchase_date), p.account_name ? esc(p.account_name) : '只做紀錄（未記支出）', `${p.items.length} 項`].join(' · ')}</span>
+            ${p.note ? `<span class="small muted">備註：${esc(p.note)}</span>` : ''}
             <span class="small muted">${p.items.map((i) => `${esc([i.brand, i.name].filter(Boolean).join(' '))} ×${Number(i.quantity)}`).join('、')}</span>
             <button type="button" class="link-btn" data-del="${p.id}" style="align-self:flex-end;color:#B42318;min-height:32px;font-size:12px">刪除</button>
           </div>`).join('')}</div>` : '<div class="panel empty">還沒有進貨紀錄。進貨後庫存會自動增加，也會記一筆美甲材料支出。</div>'}`;
