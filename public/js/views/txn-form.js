@@ -180,7 +180,7 @@ export default {
       return `${parts.filter(Boolean).join(' · ')}${adv ? `<div style="color:#6B21A8;margin-top:4px">我的支出 ${money(total() - adv)}　代墊 ${money(adv)}（不算進支出和預算）</div>` : ''}`;
     };
 
-    const detailRows = () => s.items.map((it, i) => {
+    const detailRow = (it, i) => {
       const c = catById(it.category_id);
       const p = projById(it.project_id);
       return `<div class="detail-row" data-i="${i}">
@@ -203,59 +203,58 @@ export default {
         </div>
         ${s.type === 'expense' && it.is_advance ? `<input data-k="advance_person" value="${esc(it.advance_person)}" placeholder="幫誰代墊？例如：小美" aria-label="代墊對象" style="border-color:#D8B4FE">` : ''}
       </div>`;
-    }).join('');
+    };
+    const detailRows = () => s.items.map(detailRow).join('');
 
     const draw = () => {
       const isTransfer = s.type === 'transfer';
       const acc = accounts.find((a) => a.id === Number(s.account_id));
       const cats = catsFor(s.type);
       const item0 = s.items[0];
-      const accLabel = isTransfer ? '轉出帳戶' : s.type === 'income' ? '收款帳戶' : '付款帳戶';
+      const accLabel = isTransfer ? '轉出帳戶' : s.type === 'income' ? '收款帳戶' : '付款方式';
       const title = editing ? '編輯交易' : query.preset === 'nail' ? '記美甲收入' : query.preset === 'nailtool' ? '用收入袋買工具' : '記一筆';
 
       let bodyHtml;
       if (isTransfer) {
         bodyHtml = `
-          <div class="amount-hero"><span class="muted small">轉帳金額</span>
-            <input id="amount" class="num" inputmode="numeric" pattern="[0-9]*" value="${esc(s.amount)}" placeholder="0" aria-label="轉帳金額"></div>
           <div class="list">
-            <div class="field"><label for="acc">${accLabel}</label><select id="acc">${accountOptions(s.account_id)}</select></div>
-            <div class="field"><label for="to">轉入帳戶</label><select id="to">${accountOptions(s.to_account_id, (a) => a.id !== Number(s.account_id))}</select></div>
             <div class="field"><label for="date">日期</label><input id="date" type="date" value="${esc(s.txn_date)}"></div>
             <div class="field"><label for="title">標題</label><input id="title" value="${esc(s.title)}" placeholder="例如：提領現金"></div>
+            <div class="field big-amount"><label for="amount">金額</label><input id="amount" class="num" inputmode="numeric" pattern="[0-9]*" value="${esc(s.amount)}" placeholder="0" aria-label="轉帳金額"></div>
+            <div class="field"><label for="acc">${accLabel}</label><select id="acc">${accountOptions(s.account_id)}</select></div>
+            <div class="field"><label for="to">轉入帳戶</label><select id="to">${accountOptions(s.to_account_id, (a) => a.id !== Number(s.account_id))}</select></div>
           </div>
           ${presetHint}
           <div class="note blue">轉帳只移動帳戶之間的錢，不算支出。繳信用卡費建議到帳單頁按「記錄繳款」，繳學貸到帳戶頁按「記錄繳款」。</div>`;
       } else if (mode === 'simple') {
         bodyHtml = `
-          <div class="amount-hero"><label class="muted small" for="amount1">金額</label>
-            <input id="amount1" class="num" inputmode="numeric" pattern="[0-9]*" value="${esc(item0.unit_price)}" placeholder="0"></div>
+          <div class="list">
+            <div class="field"><label for="date">日期</label><input id="date" type="date" value="${esc(s.txn_date)}"></div>
+            <div class="field"><label for="title">標題</label><input id="title" value="${esc(s.title)}" placeholder="例如：蔥油餅"></div>
+            <div class="field big-amount"><label for="amount1">金額</label><input id="amount1" class="num" inputmode="numeric" pattern="[0-9]*" value="${esc(item0.unit_price)}" placeholder="0"></div>
+            <div class="field"><label for="acc">${accLabel}</label><select id="acc" class="${acc && acc.kind === 'credit_card' ? 'orange' : ''}">${accountOptions(s.account_id, notLoan)}</select></div>
+          </div>
           <div class="stack">
             <span class="muted small">類別</span>
             <div class="cat-chips" role="group" aria-label="類別" id="cats">
               ${cats.map((c) => `<button type="button" class="cat-chip" data-cat="${c.id}" aria-pressed="${c.id === Number(item0.category_id)}" ${c.id === Number(item0.category_id) ? `style="background:${esc(c.color)}"` : ''}>${esc(c.name)}</button>`).join('')}
             </div>
           </div>
-          <div class="list">
-            ${projects.length ? `<div class="field"><label for="proj">專項</label><select id="proj">${projectOptions(item0.project_id)}</select></div>` : ''}
-            <div class="field"><label for="acc">${accLabel}</label><select id="acc" class="${acc && acc.kind === 'credit_card' ? 'orange' : ''}">${accountOptions(s.account_id, notLoan)}</select></div>
-            <div class="field"><label for="date">日期</label><input id="date" type="date" value="${esc(s.txn_date)}"></div>
-            <div class="field"><label for="title">標題</label><input id="title" value="${esc(s.title)}" placeholder="例如：蔥油餅"></div>
-          </div>
+          ${projects.length ? `<div class="list"><div class="field"><label for="proj">專項</label><select id="proj">${projectOptions(item0.project_id)}</select></div></div>` : ''}
           <span class="muted small" style="text-align:center">一筆裡有不同類別或有折扣？切到上方的「明細」。</span>`;
       } else {
         bodyHtml = `
-          <div class="panel stack" style="gap:4px;padding:12px 16px;border:2px solid var(--blue)">
-            <label for="title" style="font-size:12px;font-weight:700;color:var(--blue)">店家／大項名稱（必填）</label>
-            <input id="title" value="${esc(s.title)}" placeholder="例如：7-11、家樂福" style="border:0;padding:0;font-size:18px;font-weight:700;background:transparent;min-height:32px">
-          </div>
           <div class="list">
-            <div class="field"><label for="acc">${accLabel}</label><select id="acc" class="${acc && acc.kind === 'credit_card' ? 'orange' : ''}">${accountOptions(s.account_id, notLoan)}</select></div>
             <div class="field"><label for="date">日期</label><input id="date" type="date" value="${esc(s.txn_date)}"></div>
+            <div class="stack" style="gap:2px;padding:10px 0">
+              <label for="title" style="font-size:12px;font-weight:700;color:var(--blue)">店家／大項名稱（必填）</label>
+              <input id="title" value="${esc(s.title)}" placeholder="例如：7-11、家樂福" style="border:0;padding:0;font-size:18px;font-weight:700;background:transparent;min-height:32px">
+            </div>
+            <div class="field"><label for="acc">${accLabel}</label><select id="acc" class="${acc && acc.kind === 'credit_card' ? 'orange' : ''}">${accountOptions(s.account_id, notLoan)}</select></div>
           </div>
-          <div class="spread"><h2 class="section" style="font-size:15px">明細（${s.items.length}）</h2><span class="muted small">每筆各自選類別、專項</span></div>
+          <div class="spread"><h2 class="section" style="font-size:15px" id="items-count">明細（${s.items.length}）</h2><span class="muted small">每筆各自選類別、專項</span></div>
           <div class="list" id="items">${detailRows()}
-            <div class="grid-2" style="gap:0">
+            <div class="grid-2" style="gap:0" id="item-actions">
               <button type="button" class="link-btn" id="add-item" style="min-height:48px;justify-content:center">${icon('plus', 18, 2)}新增明細</button>
               <button type="button" class="link-btn" id="discount" style="min-height:48px;justify-content:center;color:#15803D">${icon('plus', 18, 2)}${s.discount.amount ? '修改折扣' : '折扣'}</button>
             </div>
@@ -475,9 +474,18 @@ export default {
           sync();
           const last = s.items[s.items.length - 1];
           s.items.push(blank(last.category_id, projectDefault));
-          draw();
-          const rows = el.querySelectorAll('.detail-row');
-          rows[rows.length - 1].querySelector('[data-k="name"]').focus();
+          const i = s.items.length - 1;
+          // 只在清單最後加一列，不重畫整個表單（手機上畫面才不會跳）
+          const holder = document.createElement('div');
+          holder.innerHTML = detailRow(s.items[i], i);
+          const row = holder.firstElementChild;
+          el.querySelector('#item-actions').before(row);
+          el.querySelector('#items-count').textContent = `明細（${s.items.length}）`;
+          el.querySelectorAll('[data-remove]').forEach((b) => { b.disabled = s.items.length === 1; });
+          refreshTotals();
+          const input = row.querySelector('[data-k="name"]');
+          input.focus({ preventScroll: true });
+          row.scrollIntoView({ block: 'center', behavior: 'smooth' });
         });
       }
 

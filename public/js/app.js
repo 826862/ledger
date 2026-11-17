@@ -31,17 +31,17 @@ const routes = [
   ['/login', login, null],
   ['/', home, 'home'],
   ['/accounts', accounts, 'accounts'],
-  ['/accounts/new', accountForm, null],
-  ['/accounts/:id/edit', accountForm, null],
-  ['/accounts/:id/bill', bill, null],
-  ['/accounts/:id/installments/new', installmentForm, null],
-  ['/accounts/:id/loan-pay', loanPay, null],
-  ['/review', review, null],
-  ['/statements/:sid', bill, null],
-  ['/statements/:sid/reconcile', reconcile, null],
-  ['/add', txnForm, null],
-  ['/txn/:id', txnForm, null],
-  ['/transactions', txnList, 'home'],
+  ['/accounts/new', accountForm, 'accounts'],
+  ['/accounts/:id/edit', accountForm, 'accounts'],
+  ['/accounts/:id/bill', bill, 'accounts'],
+  ['/accounts/:id/installments/new', installmentForm, 'accounts'],
+  ['/accounts/:id/loan-pay', loanPay, 'accounts'],
+  ['/review', review, 'home'],
+  ['/statements/:sid', bill, 'accounts'],
+  ['/statements/:sid/reconcile', reconcile, 'accounts'],
+  ['/add', txnForm, 'none'],
+  ['/txn/:id', txnForm, 'detail'],
+  ['/transactions', txnList, 'detail'],
   ['/report', report, 'more'],
   ['/settings', settings, 'more'],
   ['/categories', categories, 'more'],
@@ -52,12 +52,12 @@ const routes = [
   ['/nail', nail, 'nail'],
   ['/nail/customers', nailCustomers, 'nail'],
   ['/nail/customers/:cid', nailCustomers, 'nail'],
-  ['/nail/service/new', nailService, null],
-  ['/nail/service/:sid', nailService, null],
+  ['/nail/service/new', nailService, 'nail'],
+  ['/nail/service/:sid', nailService, 'nail'],
   ['/nail/purchases', nailPurchases, 'nail'],
   ['/nail/stock', nailStock, 'nail'],
   ['/report/category/:cid', reportCategory, 'more'],
-  ['/report/export', reportExport, null],
+  ['/report/export', reportExport, 'more'],
   ['/import', importer, 'more'],
 ];
 
@@ -79,21 +79,34 @@ function match(path) {
 
 const TABS = [
   ['home', '#/', 'home', '總覽'],
+  ['detail', '#/transactions', 'list', '明細'],
   ['accounts', '#/accounts', 'wallet', '帳戶'],
-  ['add', '#/add', 'plus', ''],
   ['nail', '#/nail', 'sparkle', '美甲'],
   ['more', '#/settings', 'grid', '更多'],
 ];
 
+// 底部選單在每一頁都顯示（登入頁除外）；「記一筆」是右下角的浮動按鈕
 function renderTabbar(active) {
   const bar = document.getElementById('tabbar');
   if (!active) { bar.hidden = true; return; }
   bar.hidden = false;
   bar.innerHTML = TABS.map(([key, href, ic, label]) =>
-    key === 'add'
-      ? `<a class="add" href="${href}" aria-label="記一筆">${icon(ic, 26, 2.2)}</a>`
-      : `<a href="${href}" ${key === active ? 'aria-current="page"' : ''}>${icon(ic, 24)}${label}</a>`
+    `<a href="${href}" ${key === active ? 'aria-current="page"' : ''}>${icon(ic, 24)}${label}</a>`
   ).join('');
+}
+
+function updateFab(show) {
+  let fab = document.getElementById('fab');
+  if (!fab) {
+    fab = document.createElement('a');
+    fab.id = 'fab';
+    fab.className = 'fab';
+    fab.href = '#/add';
+    fab.setAttribute('aria-label', '記一筆');
+    fab.innerHTML = icon('plus', 26, 2.2);
+    document.body.appendChild(fab);
+  }
+  fab.hidden = !show;
 }
 
 let renderId = 0;
@@ -109,7 +122,10 @@ async function router() {
   el.innerHTML = '<div class="loading">載入中…</div>';
   window.scrollTo(0, 0);
   try {
+    updateFab(false);
     await found.view.render(el, found.params, query, () => id === renderId);
+    // 有「儲存」等底部按鈕的頁面不顯示浮動的記一筆按鈕
+    if (id === renderId) updateFab(Boolean(found.tab) && !el.querySelector('.action-bar'));
   } catch (err) {
     if (id !== renderId) return;
     if (err.status === 401) return;

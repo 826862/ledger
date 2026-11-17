@@ -1,5 +1,5 @@
 -- =====================================================================
--- 一次升級到最新版（包含 002、003、004、005）
+-- 一次升級到最新版（包含 002～006）
 -- 適用：用最早那版 db/schema.sql 建立、之後都還沒執行過任何 migration 的資料庫。
 -- 在 Neon SQL Editor 貼上整份按 Run 即可；重複執行也不會出錯。
 -- =====================================================================
@@ -256,5 +256,16 @@ ALTER TABLE transactions ADD COLUMN IF NOT EXISTS discount_amount BIGINT NOT NUL
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS discount_label TEXT;
 -- 有折扣時，unit_price／amount 是折後金額，original_amount 是折扣前的金額
 ALTER TABLE transaction_items ADD COLUMN IF NOT EXISTS original_amount BIGINT;
+
+COMMIT;
+
+-- =====================================================================
+-- 006：帳戶「預設隱藏餘額」
+-- 在 Neon SQL Editor 執行一次（重複執行也不會出錯）。
+-- =====================================================================
+
+BEGIN;
+
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS hide_balance BOOLEAN NOT NULL DEFAULT FALSE;
 
 COMMIT;

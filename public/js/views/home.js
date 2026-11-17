@@ -1,20 +1,13 @@
 import { api } from '../api.js';
-import { esc, money, md, icon, txnRow, groupByDate, dateLabel, todayStr, bindExpand } from '../ui.js';
+import { esc, money, icon } from '../ui.js';
 
 export default {
   async render(el, params, query, alive) {
-    const [d, recent, accounts] = await Promise.all([
-      api.get('/dashboard'),
-      api.get('/transactions?limit=20&until_today=1'),
-      api.accounts(),
-    ]);
+    const [d, accounts] = await Promise.all([api.get('/dashboard'), api.accounts()]);
     if (!alive()) return;
     const [y, m] = d.today.split('-');
     const cats = d.month_categories;
     const top = cats.slice(0, 3);
-    // 分期的購買紀錄不影響餘額，總覽只顯示真正的金流
-    const recentShown = recent.filter((t) => t.affects_balance).slice(0, 12);
-    const groups = groupByDate(recentShown);
 
     const cards = accounts.filter((a) => a.kind === 'credit_card');
     const loans = accounts.filter((a) => a.kind === 'loan');
@@ -27,32 +20,11 @@ export default {
           <span class="muted small">${y} 年 ${Number(m)} 月</span>
           <h1>總覽</h1>
         </div>
-        <a href="#/accounts" class="num" style="font-size:14px;font-weight:500;padding:10px 0">淨資產 NT$ ${money(d.net_worth)}</a>
       </div>
 
       ${d.pending_review ? `<a class="banner" href="#/review"><span>${d.pending_review} 筆自動扣款待核對</span><span>前往 ›</span></a>` : ''}
 
-      <div class="grid-2">
-        <a class="money-card deposit" href="#/accounts">
-          <span class="label">存款餘額</span>
-          <span class="value">${money(d.deposit_total)}</span>
-          <span class="hint">${d.deposit_count} 個帳戶</span>
-        </a>
-        <a class="money-card card" href="#/accounts">
-          <span class="label">信用卡未繳</span>
-          <span class="value">${money(d.card_total)}</span>
-          <span class="hint">${d.next_due ? `最近繳款日 ${md(d.next_due.due_date)}` : `${d.card_count} 張卡`}</span>
-        </a>
-      </div>
-
-      ${d.loans.length ? `<a class="panel row" href="#/accounts" style="color:inherit;padding:14px 16px">
-        <div class="icon-box loan">${icon('loan')}</div>
-        <div class="stack" style="flex:1;gap:2px">
-          <span class="muted small">貸款剩餘本金</span>
-          <span class="num" style="font-size:18px;font-weight:700">${money(d.loan_total)}</span>
-        </div>
-        ${d.loans[0].loan_next_date ? `<span class="muted small">下次扣款 ${md(d.loans[0].loan_next_date)}</span>` : ''}
-      </a>` : ''}
+      ${cards.filter((c) => c.due_statement).map((c) => `<a class="banner" href="#/statements/${c.due_statement.id}"><span>${esc(c.name)} 上期帳單還沒繳 NT$ ${money(c.due_statement.statement_amount ?? c.due_statement.recorded_amount)}</span><span>前往 ›</span></a>`).join('')}
 
       <nav class="quick" aria-label="快速動作">
         <a href="#/add?type=transfer&preset=withdraw"><span class="icon-box">${icon('down2')}</span>提領現金</a>
@@ -89,16 +61,7 @@ export default {
           </div>` : '<span class="muted small">這個月還沒有支出</span>'}
       </a>
 
-      <div class="stack">
-        <div class="spread">
-          <h2 class="section">最近交易</h2>
-          <a href="#/transactions?month=${todayStr().slice(0, 7)}" style="font-size:14px;padding:8px 0">全部</a>
-        </div>
-        ${recentShown.length ? `<div class="list">
-          ${groups.map((g) => `<div class="list-date">${dateLabel(g.date)}</div>${g.items.map(txnRow).join('')}`).join('')}
-        </div>` : `<div class="panel empty">還沒有任何交易。先到「帳戶」新增存款帳戶和信用卡，再按下方的 ＋ 記第一筆。</div>`}
-      </div>`;
-    const recentList = el.querySelector('.list');
-    if (recentList) bindExpand(recentList, recentShown);
+      <span class="muted small" style="text-align:center">存款、信用卡餘額在「帳戶」；每筆交易在「明細」</span>
+`;
   },
 };

@@ -34,6 +34,7 @@ function readAccountBody(body, { creating }) {
   }
   if (body.autopay_account_id !== undefined) out.autopay_account_id = toInt(body.autopay_account_id);
   if (body.is_cash !== undefined) out.is_cash = Boolean(body.is_cash);
+  if (body.hide_balance !== undefined) out.hide_balance = Boolean(body.hide_balance);
   if (body.icon_type !== undefined) {
     if (!['auto', 'text', 'icon', 'emoji', 'image'].includes(body.icon_type)) throw new HttpError(400, '圖示類型不正確');
     out.icon_type = body.icon_type;
@@ -136,8 +137,8 @@ router.post('/', wrap(async (req, res) => {
     const nextDate = a.kind === 'loan' && a.loan_day ? autopay.nextLoanDate(dates.today(), a.loan_day) : null;
     const { rows } = await client.query(
       `INSERT INTO accounts (name, kind, opening_balance, statement_day, due_day, credit_limit, color, sort_order,
-         autopay_account_id, loan_rate, loan_payment, loan_day, loan_next_date, is_cash, icon_type, icon_value, icon_image)
-       VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, '#1D4ED8'), COALESCE($8, 0), $9, $10, $11, $12, $13, $14, $15, $16, $17)
+         autopay_account_id, loan_rate, loan_payment, loan_day, loan_next_date, is_cash, icon_type, icon_value, icon_image, hide_balance)
+       VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, '#1D4ED8'), COALESCE($8, 0), $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
        RETURNING *`,
       [a.name, a.kind, a.opening_balance,
        a.kind === 'credit_card' ? a.statement_day : null, a.kind === 'credit_card' ? a.due_day : null,
@@ -147,7 +148,7 @@ router.post('/', wrap(async (req, res) => {
        a.kind === 'loan' ? a.loan_payment ?? null : null,
        a.kind === 'loan' ? a.loan_day ?? null : null,
        nextDate,
-       a.kind === 'deposit' ? Boolean(a.is_cash) : false, ...icon]
+       a.kind === 'deposit' ? Boolean(a.is_cash) : false, ...icon, Boolean(a.hide_balance)]
     );
     return rows[0];
   });

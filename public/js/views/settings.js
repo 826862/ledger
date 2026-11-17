@@ -16,7 +16,6 @@ export default {
         ${row('#/projects', 'folder', '專項', '日本行、接案等各自花了多少、賺了多少')}
         ${row('#/advances', 'people', '代墊待收回', '誰還沒還你錢')}
         ${row('#/report', 'pie', '分類報表', '每月各分類佔比')}
-        ${row('#/transactions', 'list', '所有交易', '依月份瀏覽、編輯')}
       </div>
       <div class="list">
         ${row('#/accounts', 'wallet', '帳戶管理', '存款、信用卡、貸款')}

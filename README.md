@@ -42,7 +42,7 @@ npm run dev               # http://localhost:3000
 
 ## 從舊版升級
 
-已經在使用的資料庫，到 Neon 的 SQL Editor 執行 `db/migrations/upgrade_to_latest.sql`（包含 002～005，重複執行也不會出錯），再更新程式碼。
+已經在使用的資料庫，到 Neon 的 SQL Editor 執行 `db/migrations/upgrade_to_latest.sql`（包含 002～006，重複執行也不會出錯），再更新程式碼。
 
 如果只想執行還沒跑過的部分，也可以依序執行個別檔案：
 
@@ -50,6 +50,7 @@ npm run dev               # http://localhost:3000
 2. `db/migrations/003_advances_budget_projects_nail.sql`：代墊、預算、專項、美甲收入袋
 3. `db/migrations/004_details_icons_nail_reports.sql`：明細層級專項、帳戶圖示、美甲客戶／施做／進貨／庫存
 4. `db/migrations/005_discounts.sql`：折扣
+5. `db/migrations/006_hide_balance.sql`：帳戶預設隱藏餘額
 
 全新的資料庫只要執行 `db/schema.sql`。
 
@@ -175,6 +176,10 @@ Render 免費方案閒置約 15 分鐘會休眠，之後第一次打開要等幾
 「更多 → 匯入資料」選擇匯入檔（JSON），確認各信用卡的結帳日、繳款日後按「開始匯入」。匯入會清空目前的帳戶、交易、預算、專項、美甲資料（分類保留），再用匯入檔重建；信用卡刷卡依設定的結帳日分期，繳款日已過的帳單標成已繳款。
 
 之後在信用卡的帳戶設定修改結帳日或繳款日，系統會自動依新的日期重新分期（已經對帳過的帳單不會被動到）。
+
+### 畫面與導覽
+
+底部選單：總覽、明細、帳戶、美甲、更多，在每一頁都會顯示；右下角的圓形「＋」是記一筆。「明細」分頁可以用箭頭或滾輪選單切換月份，依全部／支出／收入／轉帳篩選。帳戶可以設定「預設隱藏餘額」，帳戶頁點眼睛才顯示；有隱藏的帳戶時，總額也會一起隱藏。
 
 ### 刪除
 

@@ -486,3 +486,13 @@ ALTER TABLE transactions ADD COLUMN IF NOT EXISTS discount_label TEXT;
 ALTER TABLE transaction_items ADD COLUMN IF NOT EXISTS original_amount BIGINT;
 
 COMMIT;
+
+-- =====================================================================
+-- 帳戶預設隱藏餘額（與 db/migrations/006 相同）
+-- =====================================================================
+
+BEGIN;
+
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS hide_balance BOOLEAN NOT NULL DEFAULT FALSE;
+
+COMMIT;

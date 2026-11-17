@@ -77,7 +77,10 @@ export default {
             <div class="field"><label for="name">名稱</label>
               <input id="name" value="${esc(acc.name)}" placeholder="${{ deposit: '例如：台灣銀行、現金', credit_card: '例如：信用卡 A', loan: '例如：學貸' }[kind]}" required></div>
             ${fields}
+            <label class="toggle-row"><span style="font-size:14px;color:var(--muted)">預設隱藏餘額</span>
+              <input type="checkbox" id="hide" ${acc.hide_balance ? 'checked' : ''}></label>
           </div>
+          <span class="muted small" style="margin-top:-8px">開啟後，帳戶頁會先顯示 ••••，點眼睛才看得到；離開頁面後會恢復隱藏。</span>
 
           <div class="panel row" style="padding:12px 16px" id="preview-row">
             <span id="preview">${accountBadge({ kind, color, icon_type: iconType, icon_value: iconValue, icon_image: iconImage, name: acc.name, is_cash: acc.is_cash }, 48)}</span>
@@ -99,7 +102,7 @@ export default {
                 <input type="color" id="color" value="${esc(color)}" style="width:48px;height:48px;border:0;padding:0;background:none;border-radius:24px;cursor:pointer" aria-label="選擇顏色（色環）">
                 <span class="small muted">點色塊打開色環</span>
               </label>
-              <input id="hex" class="input num" value="${esc(color)}" aria-label="色碼" style="width:110px;min-height:40px;font-size:15px">
+              <input id="hex" class="input num" value="${esc(color)}" aria-label="色碼" style="width:110px;min-height:40px;font-size:16px">
               <div class="row" id="recent" style="gap:8px;flex-wrap:wrap;width:100%">
                 ${[...new Set([...recentColors(), ...COLORS[kind]])].slice(0, 8).map((c) => `<button type="button" class="swatch" data-color="${c}" aria-label="${c}" aria-pressed="${c.toLowerCase() === color.toLowerCase()}" style="background:${c};width:32px;height:32px;border-width:2px"></button>`).join('')}
               </div>
@@ -204,6 +207,7 @@ export default {
           icon_value: ['text', 'icon', 'emoji'].includes(iconType) ? iconValue || null : null,
           icon_image: iconType === 'image' ? iconImage : null,
         };
+        body.hide_balance = el.querySelector('#hide').checked;
         recentColors(color);
         if (!editing) body.kind = kind;
         if (kind === 'deposit') body.is_cash = el.querySelector('#cash').checked;

@@ -26,14 +26,16 @@ export default {
     const txns = await api.get(`/transactions?month=${month}`);
     if (!alive()) return;
     const today = todayStr();
-    const visible = txns.filter((t) => t.affects_balance && t.txn_date <= today);
+    const filter = ['expense', 'income', 'transfer'].includes(query.f) ? query.f : 'all';
+    const all = txns.filter((t) => t.affects_balance && t.txn_date <= today);
+    const visible = filter === 'all' ? all : all.filter((t) => (filter === 'transfer' ? ['transfer', 'adjustment'].includes(t.type) : t.type === filter));
     const byId = new Map(visible.map((t) => [t.id, t]));
     let selecting = query.select === '1';
     const selected = new Set();
 
     const draw = () => {
-      const out = visible.filter((t) => t.type === 'expense').reduce((s, t) => s + t.total, 0);
-      const inc = visible.filter((t) => t.type === 'income').reduce((s, t) => s + t.total, 0);
+      const out = all.filter((t) => t.type === 'expense').reduce((x, t) => x + t.total, 0);
+      const inc = all.filter((t) => t.type === 'income').reduce((x, t) => x + t.total, 0);
       const groups = groupByDate(visible);
       const row = (t) => {
         if (selecting) {
@@ -49,17 +51,20 @@ export default {
       const selTotal = [...selected].reduce((s, id) => s + (byId.get(id).type === 'income' ? 0 : byId.get(id).total), 0);
       el.innerHTML = `
         <div class="page-head">
-          ${selecting ? '<button type="button" class="link-btn" id="cancel" style="color:var(--muted)">取消</button>' : '<h1 style="font-size:22px">所有交易</h1>'}
+          ${selecting ? '<button type="button" class="link-btn" id="cancel" style="color:var(--muted)">取消</button>' : '<h1>明細</h1>'}
           ${selecting ? `<strong>已選 ${selected.size} 筆</strong><button type="button" class="link-btn" id="all">全選</button>`
             : `<button type="button" class="btn ghost small" id="select" style="min-height:40px" ${visible.length ? '' : 'disabled'}>選取</button>`}
         </div>
         ${selecting ? '' : periodBar(monthLabel(month))}
-        ${selecting ? '' : `<div class="grid-2">
-          <div class="panel stack" style="gap:2px"><span class="muted small">支出</span><span class="num" style="font-size:20px;font-weight:700">${money(out)}</span></div>
-          <div class="panel stack" style="gap:2px"><span class="muted small">收入</span><span class="num blue" style="font-size:20px;font-weight:700">${money(inc)}</span></div>
-        </div>`}
+        ${selecting ? '' : `<div class="grid-3">
+          <div class="panel stack" style="gap:2px;padding:10px 12px"><span class="muted small">支出</span><span class="num" style="font-size:17px;font-weight:700">${money(out)}</span></div>
+          <div class="panel stack" style="gap:2px;padding:10px 12px"><span class="muted small">收入</span><span class="num blue" style="font-size:17px;font-weight:700">${money(inc)}</span></div>
+          <div class="panel stack" style="gap:2px;padding:10px 12px"><span class="muted small">筆數</span><span class="num" style="font-size:17px;font-weight:700">${all.length}</span></div>
+        </div>
+        <div class="chips">${[['all', '全部'], ['expense', '支出'], ['income', '收入'], ['transfer', '轉帳']].map(([k, l]) =>
+          `<a class="chip" href="#/transactions?month=${month}${k === 'all' ? '' : `&f=${k}`}" aria-pressed="${filter === k}" style="display:inline-flex;align-items:center">${l}</a>`).join('')}</div>`}
         ${visible.length ? `<div class="list" id="list">${groups.map((g) => `<div class="list-date">${dateLabel(g.date)}</div>${g.items.map(row).join('')}`).join('')}</div>`
-          : '<div class="panel empty">這個月沒有交易</div>'}
+          : `<div class="panel empty">${filter === 'all' ? '這個月沒有交易' : '這個月沒有這類交易'}</div>`}
         ${!selecting && visible.length ? '<span class="muted small" style="text-align:center">往左滑可以刪除單筆；按「選取」可以一次刪除多筆</span>' : ''}
         ${selecting ? `<div class="action-bar"><button class="btn danger-solid" id="del" ${selected.size ? '' : 'disabled'}>${selected.size ? `刪除 ${selected.size} 筆（共 ${money(selTotal)}）` : '勾選要刪除的交易'}</button></div>` : ''}`;
 
@@ -86,12 +91,12 @@ export default {
             const r = await api.post('/transactions/bulk-delete', { ids: [...selected] });
             invalidate('accounts');
             toast(`已刪除 ${r.deleted} 筆${r.skipped ? `，${r.skipped} 筆分期略過` : ''}`);
-            this.render(el, params, { month }, alive);
+            this.render(el, params, { month, f: query.f }, alive);
           } catch (err) { showError(err); }
         });
       } else {
         el.querySelector('#select').addEventListener('click', () => { selecting = true; draw(); });
-        bindPeriodBar(el, { value: month, go: (m) => { location.hash = `#/transactions?month=${m}`; } });
+        bindPeriodBar(el, { value: month, go: (m) => { location.hash = `#/transactions?month=${m}${filter === 'all' ? '' : `&f=${filter}`}`; } });
         if (list) bindExpand(list, visible);
         if (list) makeSwipeable(list, async (id) => {
           const t = byId.get(Number(id));
@@ -100,7 +105,7 @@ export default {
             await api.del(`/transactions/${id}`);
             invalidate('accounts');
             toast('已刪除');
-            this.render(el, params, { month }, alive);
+            this.render(el, params, { month, f: query.f }, alive);
           } catch (err) { showError(err); }
         });
       }
