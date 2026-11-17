@@ -60,7 +60,9 @@ export default {
       if (todayStr() > first) first = clamp(tm === 12 ? ty + 1 : ty, tm === 12 ? 1 : tm + 1);
       const out = [];
       let [y, m] = first.split('-').map(Number);
-      for (let k = 0; k < 6; k++) {
+      // 也列出最近兩期已結帳的帳單（例如剛收到、還沒繳的那期）
+      m -= 2; if (m < 1) { m += 12; y -= 1; }
+      for (let k = 0; k < 8; k++) {
         out.push(clamp(y, m));
         m += 1; if (m > 12) { m = 1; y += 1; }
       }
@@ -84,7 +86,32 @@ export default {
         <div class="stack" style="gap:2px"><span class="small">總還款</span><span class="num" style="font-size:18px;font-weight:700">${money(total)}</span></div>`;
     };
 
+    // 和帳單頁一樣用「消費期間・繳款日」標示，避免把「11 月繳的帳單」和「11 月結帳的帳單」搞混
+    const billLabels = (card) => {
+      const ends = billOptions(card);
+      const md2 = (d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8))}`;
+      const addDay = (d) => { const x = new Date(`${d}T00:00:00`); x.setDate(x.getDate() + 1); return x; };
+      const fmt = (x) => `${x.getMonth() + 1}/${x.getDate()}`;
+      const dueOf = (end) => {
+        const [y, m] = end.split('-').map(Number);
+        const sd = card.statement_day;
+        const dd = card.due_day;
+        let yy = y; let mm = m;
+        if (!(dd > sd)) { mm += 1; if (mm > 12) { mm = 1; yy += 1; } }
+        const last = new Date(yy, mm, 0).getDate();
+        return `${mm}/${Math.min(dd, last)}`;
+      };
+      return ends.map((end, i) => {
+        const prev = i > 0 ? ends[i - 1] : (() => { const [y, m] = end.split('-').map(Number); const pm = m === 1 ? 12 : m - 1; const py = m === 1 ? y - 1 : y; const last = new Date(py, pm, 0).getDate(); return `${py}-${String(pm).padStart(2, '0')}-${String(Math.min(card.statement_day, last)).padStart(2, '0')}`; })();
+        return [end, `${fmt(addDay(prev))}–${md2(end)} 消費・${dueOf(end)} 繳款${end < todayStr() ? '（已結帳）' : ''}`];
+      });
+    };
+
     const draw = () => {
+      if (s.paid && !s.next_bill) {
+        const card = cards.find((a) => a.id === Number(s.account_id)) || cards[0];
+        s.next_bill = billOptions(card).find((d) => d >= todayStr()) || '';
+      }
       const custom = !PRESETS.includes(Number(s.periods));
       el.innerHTML = `
         ${backHead('新增分期', back)}
@@ -119,8 +146,8 @@ export default {
               </span>
             </div>
             ${s.paid ? `<div class="field" style="padding:0;min-height:44px"><label for="next-bill">第 ${s.paid + 1} 期出現在</label>
-              <select id="next-bill">${billOptions(cards.find((a) => a.id === Number(s.account_id)) || cards[0]).map((d) => `<option value="${d}" ${d === s.next_bill ? 'selected' : ''}>${Number(d.slice(5, 7))} 月帳單（${Number(d.slice(5, 7))}/${Number(d.slice(8))} 結帳）</option>`).join('')}</select></div>
-              <span class="muted small">已繳的 ${s.paid} 期只做紀錄，不會再算進帳單、餘額或報表；剩下 ${Number(s.periods) - s.paid} 期會照常進每月帳單，報表按期計算。</span>`
+              <select id="next-bill">${billLabels(cards.find((a) => a.id === Number(s.account_id)) || cards[0]).map(([d, label]) => `<option value="${d}" ${d === s.next_bill ? 'selected' : ''}>${label}</option>`).join('')}</select></div>
+              <span class="muted small">選「第 ${s.paid + 1} 期」出現在哪一張帳單（和帳單頁上方顯示的消費期間相同）。已繳的 ${s.paid} 期只做紀錄，不會再算進帳單、餘額或報表；剩下 ${Number(s.periods) - s.paid} 期會照常進每月帳單，報表按期計算。</span>`
               : '<span class="muted small">新刷的分期維持 0；之前就開始繳的分期，選已經繳了幾期。</span>'}
           </div>
 
