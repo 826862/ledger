@@ -84,8 +84,41 @@ async function rebuild(client, account, today) {
        AND NOT EXISTS (SELECT 1 FROM transactions t WHERE t.statement_id = s.id)`,
     [account.id]
   );
-  if (full) await client.query(`UPDATE card_statements SET status = 'paid' WHERE account_id = $1 AND due_date < $2`, [account.id, today]);
+  if (full) await settleByPayments(client, account, today);
   return txns.length;
 }
 
-module.exports = { periodEndFor, boundsFor, getOrCreate, forDate, next, summary, rebuild, SUMMARY_SQL };
+// 依繳款紀錄判斷哪些已結帳的帳單繳過了：
+// 每筆轉入這張卡的繳款，對應到「繳款日之前最近一次結帳」的那期；
+// 最後一期有對應繳款的帳單，以及它之前的所有帳單，都視為已繳；之後已結帳的帳單維持未繳。
+async function settleByPayments(client, account, today) {
+  const { rows: payments } = await client.query(
+    `SELECT txn_date FROM transactions
+     WHERE type = 'transfer' AND to_account_id = $1 AND affects_balance AND txn_date <= $2
+     ORDER BY txn_date`,
+    [account.id, today]
+  );
+  const { rows: list } = await client.query(
+    `SELECT id, period_end, status, reconciled_at FROM card_statements
+     WHERE account_id = $1 AND period_end < $2 ORDER BY period_end`,
+    [account.id, today]
+  );
+  let lastPaidEnd = null;
+  for (const p of payments) {
+    const matched = list.filter((st) => st.period_end < p.txn_date && dates.addDays(st.period_end, 45) >= p.txn_date);
+    if (matched.length) {
+      const end = matched[matched.length - 1].period_end;
+      if (!lastPaidEnd || end > lastPaidEnd) lastPaidEnd = end;
+    }
+  }
+  const result = { paid: [], open: [] };
+  for (const st of list) {
+    const settled = lastPaidEnd !== null && st.period_end <= lastPaidEnd;
+    const status = settled ? 'paid' : st.reconciled_at ? 'reconciled' : 'open';
+    if (status !== st.status) await client.query('UPDATE card_statements SET status = $2 WHERE id = $1', [st.id, status]);
+    (settled ? result.paid : result.open).push(st.id);
+  }
+  return result;
+}
+
+module.exports = { periodEndFor, boundsFor, getOrCreate, forDate, next, summary, rebuild, settleByPayments, SUMMARY_SQL };

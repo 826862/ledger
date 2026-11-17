@@ -136,4 +136,40 @@ router.post('/statements/:id/pay', wrap(async (req, res) => {
   res.json(result);
 }));
 
+// 改回未繳：只適用沒有連結繳款紀錄的帳單（例如匯入時判斷錯誤）
+router.post('/statements/:id/unpay', wrap(async (req, res) => {
+  const id = requireInt(req.params.id, '帳單 id');
+  await tx(async (client) => {
+    const { rows } = await client.query('SELECT * FROM card_statements WHERE id = $1 FOR UPDATE', [id]);
+    if (!rows[0]) throw new HttpError(404, '找不到這期帳單');
+    const { rows: pay } = await client.query(
+      `SELECT 1 FROM transactions WHERE statement_id = $1 AND type = 'transfer' LIMIT 1`, [id]
+    );
+    if (pay.length) throw new HttpError(400, '這期有繳款紀錄，請先在交易裡刪除那筆繳款');
+    await client.query(
+      `UPDATE card_statements SET status = CASE WHEN reconciled_at IS NOT NULL THEN 'reconciled' ELSE 'open' END WHERE id = $1`, [id]
+    );
+  });
+  res.json({ ok: true });
+}));
+
+// 標記為已繳（例如在別的地方已經繳過、也已經記了轉帳）
+router.post('/statements/:id/mark-paid', wrap(async (req, res) => {
+  const id = requireInt(req.params.id, '帳單 id');
+  const r = await query(`UPDATE card_statements SET status = 'paid' WHERE id = $1`, [id]);
+  if (!r.rowCount) throw new HttpError(404, '找不到這期帳單');
+  res.json({ ok: true });
+}));
+
+// 依繳款紀錄重新判斷這張卡哪些帳單已繳清
+router.post('/accounts/:id/statements/settle', wrap(async (req, res) => {
+  const id = requireInt(req.params.id, '帳戶 id');
+  const result = await tx(async (client) => {
+    const { rows } = await client.query('SELECT * FROM accounts WHERE id = $1', [id]);
+    if (!rows[0] || rows[0].kind !== 'credit_card') throw new HttpError(404, '找不到這張信用卡');
+    return statements.settleByPayments(client, rows[0], dates.today());
+  });
+  res.json(result);
+}));
+
 module.exports = router;

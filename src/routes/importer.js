@@ -125,8 +125,10 @@ router.post('/import', wrap(async (req, res) => {
       count++;
     }
 
-    // 6. 繳款日已過的帳單標成已繳款
-    await client.query(`UPDATE card_statements SET status = 'paid' WHERE due_date < $1`, [dates.today()]);
+    // 6. 依實際繳款金額判斷哪些帳單已經繳清（先繳最舊的），沒繳清的維持未繳
+    for (const acc of Object.values(accRow)) {
+      if (acc.kind === 'credit_card') await statements.settleByPayments(client, acc, dates.today());
+    }
     const { rows: bal } = await client.query('SELECT name, kind, balance FROM v_account_balances ORDER BY id');
     return { transactions: count, accounts: bal };
   });
